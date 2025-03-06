@@ -1,0 +1,25 @@
+[Unit]
+Description=SAI Inference Service
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/opt/sai-inference
+Environment=PYTHONPATH=/opt/sai-inference
+ExecStart=/opt/sai-inference/venv/bin/python3 /opt/sai-inference/bin/inference_service.py
+Restart=always
+RestartSec=10
+
+# Basic watchdog
+WatchdogSec=30
+NotifyAccess=all
+
+# Logging
+StandardOutput=append:/var/log/sai-inference/service.log
+StandardError=append:/var/log/sai-inference/error.log
+
+[Install]
+WantedBy=multi-user.target
