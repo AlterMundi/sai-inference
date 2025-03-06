@@ -148,8 +148,8 @@ sudo cp $PROJECT_ROOT/systemd/logrotate.conf /etc/logrotate.d/sai-inference
 
 # Set permissions
 echo "Setting file permissions..."
-sudo chown -R admin:admin $INSTALL_DIR
-sudo chown -R admin:admin $LOG_DIR
+sudo chown -R service:service $INSTALL_DIR
+sudo chown -R service:service $LOG_DIR
 sudo chmod 644 $CONFIG_DIR/config.yaml
 sudo chmod 644 /etc/systemd/system/sai-inference.service
 sudo chmod 644 /etc/systemd/system/tunnel-molmo.service
