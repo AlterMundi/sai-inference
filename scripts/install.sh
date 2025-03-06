@@ -43,6 +43,7 @@ check_required_files() {
             "$PROJECT_ROOT/src/inference_service.py"
             "$PROJECT_ROOT/config/config.yaml"
             "$PROJECT_ROOT/systemd/sai-inference.service"
+            "$PROJECT_ROOT/systemd/tunnel-molmo.service"
             "$PROJECT_ROOT/systemd/logrotate.conf"
             "$PROJECT_ROOT/requirements.txt"
         )
@@ -142,6 +143,7 @@ echo "Copying service files..."
 sudo cp $PROJECT_ROOT/src/inference_service.py $INSTALL_DIR/bin/
 sudo cp $PROJECT_ROOT/config/config.yaml $CONFIG_DIR/
 sudo cp $PROJECT_ROOT/systemd/sai-inference.service /etc/systemd/system/sai-inference.service
+sudo cp $PROJECT_ROOT/systemd/tunnel-molmo.service /etc/systemd/system/sai-inference.service
 sudo cp $PROJECT_ROOT/systemd/logrotate.conf /etc/logrotate.d/sai-inference
 
 # Set permissions
@@ -150,15 +152,22 @@ sudo chown -R admin:admin $INSTALL_DIR
 sudo chown -R admin:admin $LOG_DIR
 sudo chmod 644 $CONFIG_DIR/config.yaml
 sudo chmod 644 /etc/systemd/system/sai-inference.service
+sudo chmod 644 /etc/systemd/system/tunnel-molmo.service
 sudo chmod 644 /etc/logrotate.d/sai-inference
 sudo chmod 755 $INSTALL_DIR/bin/inference_service.py
 
 # Enable and start service
-echo "Enabling and starting service..."
+echo "Enabling and starting Inference service..."
 sudo systemctl daemon-reload
 sudo systemctl enable sai-inference
 sudo systemctl start sai-inference
 
+echo "Enabling and starting Tunnel service..."
+sudo systemctl enable tunnel-molmo
+sudo systemctl start tunnel-molmo
+
 echo "Installation completed successfully!"
-echo "Service status:"
+echo "Inference Service status:"
 sudo systemctl status sai-inference
+echo "Tunnel Service status:"
+sudo systemctl status tunnel-molmo
