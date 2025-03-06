@@ -84,8 +84,8 @@ backup_existing_config() {
 
             # Backup logrotate config if it exists
             if [ -f "/etc/logrotate.d/sai-inference" ]; then
-                sudo cp "/etc/logrotate.d/sai-inference" "$BACKUP_DIR/$TIMESTAMP/"
-                echo "Logrotate config backup created at: $BACKUP_DIR/$TIMESTAMP/sai-inference"
+                sudo cp "/etc/logrotate.d/sai-inference" "$BACKUP_DIR/$TIMESTAMP/sai-inference-logrotate"
+                echo "Logrotate config backup created at: $BACKUP_DIR/$TIMESTAMP/sai-inference-logrotate"
             fi
         fi
     fi
@@ -143,7 +143,7 @@ echo "Copying service files..."
 sudo cp $PROJECT_ROOT/src/inference_service.py $INSTALL_DIR/bin/
 sudo cp $PROJECT_ROOT/config/config.yaml $CONFIG_DIR/
 sudo cp $PROJECT_ROOT/systemd/sai-inference.service /etc/systemd/system/sai-inference.service
-sudo cp $PROJECT_ROOT/systemd/tunnel-molmo.service /etc/systemd/system/sai-inference.service
+sudo cp $PROJECT_ROOT/systemd/tunnel-molmo.service /etc/systemd/system/tunnel-molmo.service
 sudo cp $PROJECT_ROOT/systemd/logrotate.conf /etc/logrotate.d/sai-inference
 
 # Set permissions

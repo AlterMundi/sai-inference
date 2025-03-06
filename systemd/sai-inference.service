@@ -5,8 +5,8 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-User=admin
-Group=admin
+User=service
+Group=service
 WorkingDirectory=/opt/sai-inference
 Environment=PYTHONPATH=/opt/sai-inference
 ExecStart=/opt/sai-inference/venv/bin/python3 /opt/sai-inference/bin/inference_service.py
