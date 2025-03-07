@@ -14,8 +14,8 @@ Restart=always
 RestartSec=10
 
 # Basic watchdog
-WatchdogSec=30
-NotifyAccess=all
+#WatchdogSec=30
+#NotifyAccess=all
 
 # Logging
 StandardOutput=append:/var/log/sai-inference/service.log
