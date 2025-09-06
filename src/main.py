@@ -106,7 +106,7 @@ async def health_check():
             "cpu_usage": cpu_percent,
             "memory_usage": memory.percent,
             "memory_available_gb": memory.available / (1024**3),
-            "cached_results": len(inference_engine.cache)
+            "cached_results": 0  # Cache removed to fix identical output bug
         }
         
         # Add runtime parameters to ensure source of truth

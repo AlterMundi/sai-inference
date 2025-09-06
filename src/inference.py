@@ -13,8 +13,6 @@ from PIL import Image
 import time
 import logging
 from datetime import datetime
-import hashlib
-import json
 
 from .config import settings
 from .models import (
@@ -168,8 +166,9 @@ class InferenceEngine:
     
     def __init__(self):
         self.model_manager = ModelManager()
-        self.cache: Dict[str, InferenceResponse] = {}
-        self.cache_timestamps: Dict[str, float] = {}
+        # CACHE COMPLETELY REMOVED - was causing identical outputs
+        # self.cache: Dict[str, InferenceResponse] = {}
+        # self.cache_timestamps: Dict[str, float] = {}
         
         # Load default model
         self._load_default_model()
@@ -224,8 +223,9 @@ class InferenceEngine:
         except Exception as e:
             logger.error(f"Failed to copy development model: {e}")
     
-    def _decode_image(self, image_data: str) -> np.ndarray:
-        """Decode base64 image to numpy array"""
+    
+    def _decode_image_direct(self, image_data: str):
+        """Direct base64 to PIL - let YOLO handle everything else"""
         # Remove data URL prefix if present
         if "," in image_data:
             image_data = image_data.split(",")[1]
@@ -233,71 +233,51 @@ class InferenceEngine:
         image_bytes = base64.b64decode(image_data)
         image = Image.open(io.BytesIO(image_bytes))
         
-        # Convert to RGB if necessary
+        # Only convert to RGB if not already - minimal intervention
         if image.mode != "RGB":
             image = image.convert("RGB")
         
-        return np.array(image)
+        return image
     
-    def _preprocess_image(self, image: np.ndarray) -> tuple:
-        """Preprocess image for SAINet2.1 resolution (1920px - reference implementation)"""
-        # SAINet2.1 uses 1920px resolution (from reference: imgsz=1920)
-        # Let YOLO handle preprocessing internally for best results
-        h, w = image.shape[:2]
-        target_size = settings.input_size  # 1920 from reference
-        
-        # For 1920px, we maintain aspect ratio and let YOLO do the final processing
-        # This matches the reference implementation behavior
-        scale = min(target_size / w, target_size / h)
-        new_w = int(w * scale)
-        new_h = int(h * scale)
-        
-        # Resize to target while maintaining aspect ratio
-        if scale != 1.0:
-            resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-        else:
-            resized = image.copy()
-            
-        return resized, scale, (0, 0)  # No padding needed, YOLO handles it
-    
-    def _generate_cache_key(self, image_data: str, params: Dict[str, Any]) -> str:
-        """Generate cache key for inference request"""
-        key_data = f"{image_data[:100]}{json.dumps(params, sort_keys=True)}"
-        return hashlib.md5(key_data.encode()).hexdigest()
-    
-    def _check_cache(self, cache_key: str) -> Optional[InferenceResponse]:
-        """Check if result is in cache"""
-        if not settings.cache_enabled:
-            return None
-        
-        if cache_key in self.cache:
-            timestamp = self.cache_timestamps.get(cache_key, 0)
-            if time.time() - timestamp < settings.cache_ttl:
-                logger.debug(f"Cache hit for key: {cache_key}")
-                return self.cache[cache_key]
-            else:
-                # Expired
-                del self.cache[cache_key]
-                del self.cache_timestamps[cache_key]
-        
-        return None
-    
-    def _update_cache(self, cache_key: str, response: InferenceResponse):
-        """Update cache with new result"""
-        if settings.cache_enabled:
-            self.cache[cache_key] = response
-            self.cache_timestamps[cache_key] = time.time()
-            
-            # Cleanup old entries if cache is too large
-            if len(self.cache) > 1000:
-                # Remove oldest 100 entries
-                sorted_keys = sorted(
-                    self.cache_timestamps.keys(),
-                    key=lambda k: self.cache_timestamps[k]
-                )
-                for key in sorted_keys[:100]:
-                    del self.cache[key]
-                    del self.cache_timestamps[key]
+    # CACHE METHODS COMPLETELY REMOVED TO FIX IDENTICAL OUTPUT BUG
+    # def _generate_cache_key(self, image_data: str, params: Dict[str, Any]) -> str:
+    #     """Generate cache key for inference request"""
+    #     key_data = f"{image_data[:100]}{json.dumps(params, sort_keys=True)}"
+    #     return hashlib.md5(key_data.encode()).hexdigest()
+    # 
+    # def _check_cache(self, cache_key: str) -> Optional[InferenceResponse]:
+    #     """Check if result is in cache"""
+    #     if not settings.cache_enabled:
+    #         return None
+    #     
+    #     if cache_key in self.cache:
+    #         timestamp = self.cache_timestamps.get(cache_key, 0)
+    #         if time.time() - timestamp < settings.cache_ttl:
+    #             logger.debug(f"Cache hit for key: {cache_key}")
+    #             return self.cache[cache_key]
+    #         else:
+    #             # Expired
+    #             del self.cache[cache_key]
+    #             del self.cache_timestamps[cache_key]
+    #     
+    #     return None
+    # 
+    # def _update_cache(self, cache_key: str, response: InferenceResponse):
+    #     """Update cache with new result"""
+    #     if settings.cache_enabled:
+    #         self.cache[cache_key] = response
+    #         self.cache_timestamps[cache_key] = time.time()
+    #         
+    #         # Cleanup old entries if cache is too large
+    #         if len(self.cache) > 1000:
+    #             # Remove oldest 100 entries
+    #             sorted_keys = sorted(
+    #                 self.cache_timestamps.keys(),
+    #                 key=lambda k: self.cache_timestamps[k]
+    #             )
+    #             for key in sorted_keys[:100]:
+    #                 del self.cache[key]
+    #                 del self.cache_timestamps[key]
     
     async def infer(
         self,
@@ -318,53 +298,34 @@ class InferenceEngine:
         iou = iou_threshold or settings.iou_threshold
         max_det = max_detections or settings.max_detections
         
-        # Check cache
-        cache_params = {
-            "conf": confidence,
-            "iou": iou,
-            "max_det": max_det,
-            "model": self.model_manager.current_model_name
-        }
-        
-        # Temporarily disable caching for annotated images to test
-        if isinstance(image_data, str) and not return_annotated:
-            cache_key = self._generate_cache_key(image_data, cache_params)
-            cached_result = self._check_cache(cache_key)
-            if cached_result:
-                cached_result.metadata["cache_hit"] = True
-                return cached_result
-        else:
-            cache_key = None
         
         try:
-            # Decode image if base64
+            # Direct image handling - no BS overhead
             if isinstance(image_data, str):
-                image = self._decode_image(image_data)
+                image = self._decode_image_direct(image_data)  # PIL Image directly
             else:
                 image = image_data
             
-            original_h, original_w = image.shape[:2]
+            # Get original dimensions for coordinate scaling
+            if hasattr(image, 'size'):
+                original_w, original_h = image.size  # PIL Image
+            else:
+                original_h, original_w = image.shape[:2]  # numpy array
             
-            # SAINet2.1 Reference Implementation - simplified preprocessing
-            # Use original image, let YOLO handle resizing to imgsz=1920
-            processed_image = image  # Use original image like reference
-            scale = 1.0  # No manual scaling
-            padding = (0, 0)  # No manual padding
-            
-            # Run inference with SAINet2.1 reference parameters
+            # Direct to YOLO - let it handle everything
             model = self.model_manager.current_model
             if model is None:
                 raise ValueError("No model loaded")
             
             results = model.predict(
-                processed_image,
-                conf=confidence,  # Dynamic from settings
-                iou=iou,  # Dynamic from settings  
+                image,  # Direct PIL/numpy input - no preprocessing BS
+                conf=confidence,
+                iou=iou,
                 max_det=max_det,
-                imgsz=settings.input_size,  # Dynamic from settings
+                imgsz=settings.input_size,
                 device=self.model_manager.device,
                 verbose=False,
-                save=False  # Don't save like reference (save=True)
+                save=False
             )
             
             # Parse detections
@@ -414,12 +375,21 @@ class InferenceEngine:
             # Generate annotated image if requested
             annotated_image_b64 = None
             if return_annotated and len(results) > 0:
-                # Create a fresh copy of the original image for annotation
-                # This ensures each request gets a unique annotated image
-                img_copy = image.copy()
-                # Force YOLO to use our image copy instead of cached internal image
-                annotated = results[0].plot(img=img_copy, line_width=3)
-                _, buffer = cv2.imencode('.jpg', annotated)
+                # Convert PIL to numpy for YOLO plot if needed
+                if hasattr(image, 'size'):  # PIL Image
+                    img_array = np.array(image)
+                else:  # Already numpy
+                    img_array = image
+                
+                # YOLO plot with numpy array
+                annotated = results[0].plot(img=img_array, line_width=3)
+                
+                # YOLO plot returns RGB, cv2.imencode expects BGR
+                annotated_bgr = cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR)
+                
+                # High quality JPEG encoding
+                encode_params = [cv2.IMWRITE_JPEG_QUALITY, 95]
+                _, buffer = cv2.imencode('.jpg', annotated_bgr, encode_params)
                 annotated_image_b64 = base64.b64encode(buffer).decode('utf-8')
             
             processing_time = (time.time() - start_time) * 1000
@@ -439,9 +409,9 @@ class InferenceEngine:
                 metadata=metadata or {}
             )
             
-            # Update cache
-            if cache_key:
-                self._update_cache(cache_key, response)
+            # Cache completely removed to fix identical output bug
+            # if cache_key:
+            #     self._update_cache(cache_key, response)
             
             return response
             

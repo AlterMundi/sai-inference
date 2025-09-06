@@ -16,11 +16,11 @@ SAI Inference Service is a high-performance FastAPI-based REST API for fire and 
 4. **Models** (`src/models.py`): Pydantic data models for API requests/responses
 
 ### SAINet2.1 Reference Parameters
-The service is optimized for SAINet2.1 model with these critical parameters:
-- **Input Resolution**: 1920px (reference: `imgsz=1920`)
+The service is optimized for SAINet2.1 model with these critical parameters from `/mnt/n8n-data/SAINet/SAINet2.1/inf_yolo11m_SAINet2.1.py`:
+- **Input Resolution**: 1024px (reference: `imgsz=1024`)
 - **Confidence Threshold**: 0.15 (reference: `conf=0.15`)
-- **IOU Threshold**: 0.45
-- **Model Path**: `/mnt/n8n-data/SAINet_v1.0/datasets/D-Fire/SAINet2.1/best.pt`
+- **IOU Threshold**: 0.7 (reference: `iou=0.7`)
+- **Model Path**: `/mnt/n8n-data/SAINet/SAINet2.1/SAINet2.1_130epochs/weights/last.pt`
 
 ## Essential Commands
 
