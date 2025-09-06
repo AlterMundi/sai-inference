@@ -75,7 +75,8 @@ class ModelManager:
                 path=str(model_path),
                 size_mb=model_path.stat().st_size / (1024 * 1024),
                 classes=["smoke", "fire"],
-                input_size=settings.input_size,
+                input_size=settings.input_size,  # 1920px from reference
+                confidence_threshold=settings.model_confidence,  # 0.15 from reference
                 device=self.device,
                 loaded=True
             )
@@ -176,34 +177,26 @@ class InferenceEngine:
         
         return np.array(image)
     
-    def _preprocess_image(self, image: np.ndarray) -> np.ndarray:
-        """Preprocess image for SACRED resolution (896x896)"""
-        # Resize to SACRED resolution maintaining aspect ratio
+    def _preprocess_image(self, image: np.ndarray) -> tuple:
+        """Preprocess image for SAINet2.1 resolution (1920px - reference implementation)"""
+        # SAINet2.1 uses 1920px resolution (from reference: imgsz=1920)
+        # Let YOLO handle preprocessing internally for best results
         h, w = image.shape[:2]
-        target_size = settings.input_size
+        target_size = settings.input_size  # 1920 from reference
         
-        # Calculate scale to fit within target size
+        # For 1920px, we maintain aspect ratio and let YOLO do the final processing
+        # This matches the reference implementation behavior
         scale = min(target_size / w, target_size / h)
         new_w = int(w * scale)
         new_h = int(h * scale)
         
-        # Resize image
-        resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-        
-        # Pad to square
-        pad_w = target_size - new_w
-        pad_h = target_size - new_h
-        top = pad_h // 2
-        bottom = pad_h - top
-        left = pad_w // 2
-        right = pad_w - left
-        
-        padded = cv2.copyMakeBorder(
-            resized, top, bottom, left, right,
-            cv2.BORDER_CONSTANT, value=(114, 114, 114)
-        )
-        
-        return padded, scale, (left, top)
+        # Resize to target while maintaining aspect ratio
+        if scale != 1.0:
+            resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        else:
+            resized = image.copy()
+            
+        return resized, scale, (0, 0)  # No padding needed, YOLO handles it
     
     def _generate_cache_key(self, image_data: str, params: Dict[str, Any]) -> str:
         """Generate cache key for inference request"""
@@ -289,21 +282,26 @@ class InferenceEngine:
             
             original_h, original_w = image.shape[:2]
             
-            # Preprocess for SACRED resolution
-            processed_image, scale, padding = self._preprocess_image(image)
+            # SAINet2.1 Reference Implementation - simplified preprocessing
+            # Use original image, let YOLO handle resizing to imgsz=1920
+            processed_image = image  # Use original image like reference
+            scale = 1.0  # No manual scaling
+            padding = (0, 0)  # No manual padding
             
-            # Run inference
+            # Run inference with SAINet2.1 reference parameters
             model = self.model_manager.current_model
             if model is None:
                 raise ValueError("No model loaded")
             
             results = model.predict(
                 processed_image,
-                conf=confidence,
+                conf=confidence,  # Default 0.15 from reference
                 iou=iou,
                 max_det=max_det,
+                imgsz=settings.input_size,  # 1920 from reference
                 device=self.model_manager.device,
-                verbose=False
+                verbose=False,
+                save=False  # Don't save like reference (save=True)
             )
             
             # Parse detections
@@ -315,11 +313,12 @@ class InferenceEngine:
                     conf = float(boxes.conf[i].cpu().numpy())
                     cls = int(boxes.cls[i].cpu().numpy())
                     
-                    # Adjust coordinates for original image size
-                    x1 = (box[0] - padding[0]) / scale
-                    y1 = (box[1] - padding[1]) / scale
-                    x2 = (box[2] - padding[0]) / scale
-                    y2 = (box[3] - padding[1]) / scale
+                    # SAINet2.1: Coordinates are already in original image space
+                    # since we're not doing manual preprocessing
+                    x1 = float(box[0])
+                    y1 = float(box[1])
+                    x2 = float(box[2])
+                    y2 = float(box[3])
                     
                     # Clip to image bounds
                     x1 = max(0, min(x1, original_w))

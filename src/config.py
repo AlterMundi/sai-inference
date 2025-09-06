@@ -21,11 +21,12 @@ class Settings(BaseSettings):
     model_dir: Path = Field(default=Path("models"), env="SAI_MODEL_DIR")
     default_model: str = Field(default="sai_v2.1.pt", env="SAI_DEFAULT_MODEL")
     model_device: str = Field(default="cpu", env="SAI_DEVICE")  # cpu, cuda, cuda:0
-    model_confidence: float = Field(default=0.45, env="SAI_CONFIDENCE")
+    # SAINet2.1 Reference Parameters (from inf_yolo11m_SAINet2.1.py)
+    model_confidence: float = Field(default=0.15, env="SAI_CONFIDENCE")  # Reference: conf=0.15
     model_iou_threshold: float = Field(default=0.45, env="SAI_IOU_THRESHOLD")
     
-    # SACRED Resolution (896x896)
-    input_size: int = Field(default=896, env="SAI_INPUT_SIZE")
+    # SAINet2.1 Optimized Resolution (1920px - from reference)
+    input_size: int = Field(default=1920, env="SAI_INPUT_SIZE")  # Reference: imgsz=1920
     max_detections: int = Field(default=100, env="SAI_MAX_DETECTIONS")
     
     # Performance
