@@ -37,7 +37,7 @@ class ModelManager:
         
     def _setup_device(self) -> str:
         """Setup compute device"""
-        device = settings.model_device.lower()
+        device = settings.device.lower()
         
         if device.startswith("cuda"):
             if torch.cuda.is_available():
@@ -49,11 +49,56 @@ class ModelManager:
                 return "cpu"
         return "cpu"
     
+    def discover_models(self) -> List[str]:
+        """Discover available model files in models directory"""
+        model_extensions = ['.pt', '.pth', '.onnx', '.engine']
+        models = []
+        
+        models_dir = Path(settings.models_dir)
+        if not models_dir.exists():
+            logger.warning(f"Models directory does not exist: {models_dir}")
+            return []
+            
+        for model_file in models_dir.iterdir():
+            if model_file.is_file() and model_file.suffix.lower() in model_extensions:
+                models.append(model_file.name)
+        
+        logger.info(f"Discovered {len(models)} model(s): {models}")
+        return sorted(models)
+    
+    def get_best_available_model(self) -> Optional[str]:
+        """Get the best available model to load"""
+        available_models = self.discover_models()
+        if not available_models:
+            return None
+            
+        # Priority order: configured default > SAI models > any .pt file
+        default_model = settings.default_model
+        if default_model in available_models:
+            return default_model
+            
+        # Look for SAI/sai models
+        sai_models = [m for m in available_models if 'sai' in m.lower()]
+        if sai_models:
+            return sai_models[0]
+            
+        # Look for YOLOv8/11 models
+        yolo_models = [m for m in available_models if any(x in m.lower() for x in ['yolo', 'yv8', 'yv11'])]
+        if yolo_models:
+            return yolo_models[0]
+            
+        # Return first .pt file
+        pt_models = [m for m in available_models if m.endswith('.pt')]
+        if pt_models:
+            return pt_models[0]
+            
+        return available_models[0] if available_models else None
+    
     def load_model(self, model_name: str, model_path: Optional[Path] = None) -> bool:
         """Load a YOLO model"""
         try:
             if model_path is None:
-                model_path = settings.model_dir / model_name
+                model_path = settings.models_dir / model_name
             
             if not model_path.exists():
                 logger.error(f"Model file not found: {model_path}")
@@ -75,8 +120,9 @@ class ModelManager:
                 path=str(model_path),
                 size_mb=model_path.stat().st_size / (1024 * 1024),
                 classes=["smoke", "fire"],
-                input_size=settings.input_size,  # 1920px from reference
-                confidence_threshold=settings.model_confidence,  # 0.15 from reference
+                input_size=settings.input_size,  # Dynamic from settings
+                confidence_threshold=settings.confidence_threshold,  # Dynamic from settings
+                iou_threshold=settings.iou_threshold,  # Dynamic from settings
                 device=self.device,
                 loaded=True
             )
@@ -129,25 +175,41 @@ class InferenceEngine:
         self._load_default_model()
     
     def _load_default_model(self):
-        """Load the default model on startup"""
-        model_path = settings.model_dir / settings.default_model
-        if not model_path.exists():
-            # Try to copy from SAINet development
-            logger.warning(f"Default model not found at {model_path}")
-            self._copy_development_model()
-        
-        self.model_manager.load_model(settings.default_model)
+        """Load the best available model on startup"""
+        # Discover available models
+        available_models = self.model_manager.discover_models()
+        if not available_models:
+            logger.warning("No models found in models directory")
+            return
+            
+        # Try to load the best available model
+        best_model = self.model_manager.get_best_available_model()
+        if best_model:
+            logger.info(f"Loading best available model: {best_model}")
+            success = self.model_manager.load_model(best_model)
+            if success:
+                return
+                
+        # Fallback: try each available model
+        logger.warning(f"Default model {settings.default_model} failed, trying alternatives")
+        for model_name in available_models:
+            logger.info(f"Attempting to load: {model_name}")
+            if self.model_manager.load_model(model_name):
+                logger.info(f"Successfully loaded fallback model: {model_name}")
+                return
+                
+        logger.error("Failed to load any available models")
     
     def _copy_development_model(self):
         """Copy model from development directory"""
         try:
             import shutil
-            settings.model_dir.mkdir(parents=True, exist_ok=True)
+            settings.models_dir.mkdir(parents=True, exist_ok=True)
             
             # Try SAINet2.1 first (newest, best performance)
             source = Path("/mnt/n8n-data/SAINet_v1.0/datasets/D-Fire/SAINet2.1/best.pt")
             if source.exists():
-                dest = settings.model_dir / "sai_v2.1.pt"
+                dest = settings.models_dir / "sai_v2.1.pt"
                 shutil.copy2(source, dest)
                 logger.info(f"Copied SAINet2.1 model to {dest}")
                 return
@@ -155,7 +217,7 @@ class InferenceEngine:
             # Fallback to stage2 model
             source = Path("/mnt/n8n-data/SAINet_v1.0/run_stage2/weights/best.pt")
             if source.exists():
-                dest = settings.model_dir / "sai_stage2.pt"
+                dest = settings.models_dir / "sai_stage2.pt"
                 shutil.copy2(source, dest)
                 logger.info(f"Copied stage2 model to {dest}")
                 
@@ -252,8 +314,8 @@ class InferenceEngine:
         start_time = time.time()
         
         # Use defaults if not provided
-        confidence = confidence_threshold or settings.model_confidence
-        iou = iou_threshold or settings.model_iou_threshold
+        confidence = confidence_threshold or settings.confidence_threshold
+        iou = iou_threshold or settings.iou_threshold
         max_det = max_detections or settings.max_detections
         
         # Check cache
@@ -264,7 +326,8 @@ class InferenceEngine:
             "model": self.model_manager.current_model_name
         }
         
-        if isinstance(image_data, str):
+        # Temporarily disable caching for annotated images to test
+        if isinstance(image_data, str) and not return_annotated:
             cache_key = self._generate_cache_key(image_data, cache_params)
             cached_result = self._check_cache(cache_key)
             if cached_result:
@@ -295,10 +358,10 @@ class InferenceEngine:
             
             results = model.predict(
                 processed_image,
-                conf=confidence,  # Default 0.15 from reference
-                iou=iou,
+                conf=confidence,  # Dynamic from settings
+                iou=iou,  # Dynamic from settings  
                 max_det=max_det,
-                imgsz=settings.input_size,  # 1920 from reference
+                imgsz=settings.input_size,  # Dynamic from settings
                 device=self.model_manager.device,
                 verbose=False,
                 save=False  # Don't save like reference (save=True)
@@ -351,7 +414,11 @@ class InferenceEngine:
             # Generate annotated image if requested
             annotated_image_b64 = None
             if return_annotated and len(results) > 0:
-                annotated = results[0].plot()
+                # Create a fresh copy of the original image for annotation
+                # This ensures each request gets a unique annotated image
+                img_copy = image.copy()
+                # Force YOLO to use our image copy instead of cached internal image
+                annotated = results[0].plot(img=img_copy, line_width=3)
                 _, buffer = cv2.imencode('.jpg', annotated)
                 annotated_image_b64 = base64.b64encode(buffer).decode('utf-8')
             
@@ -368,7 +435,7 @@ class InferenceEngine:
                 has_smoke=has_smoke,
                 confidence_scores=confidence_scores,
                 annotated_image=annotated_image_b64,
-                model_version=self.model_manager.current_model_name or "unknown",
+                version=self.model_manager.current_model_name or "unknown",
                 metadata=metadata or {}
             )
             

@@ -10,7 +10,6 @@ High-performance inference service for SAI fire/smoke detection, designed as a d
 - **Model hot-swapping** without service restart
 - **Response caching** for improved performance
 - **Batch processing** for multiple images
-- **SACRED resolution** (896x896) optimized processing
 - **Docker & SystemD** deployment options
 
 ## Quick Start
@@ -214,4 +213,4 @@ ruff src/
 
 ## License
 
-Proprietary - Datalitycs SAI Project
+GNU v3

@@ -59,7 +59,7 @@ class Detection(BaseModel):
     bbox: BoundingBox
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
     
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, protected_namespaces=())
 
 
 class InferenceRequest(BaseModel):
@@ -86,10 +86,10 @@ class InferenceResponse(BaseModel):
     has_smoke: bool
     confidence_scores: Dict[str, float]  # Average confidence per class
     annotated_image: Optional[str] = Field(None, description="Base64 encoded annotated image")
-    model_version: str
+    version: str
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
     
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, protected_namespaces=())
 
 
 class BatchInferenceRequest(BaseModel):
@@ -122,6 +122,8 @@ class ModelInfo(BaseModel):
     size_mb: float
     classes: List[str]
     input_size: int
+    confidence_threshold: Optional[float] = None
+    iou_threshold: Optional[float] = None
     device: str
     loaded: bool
     performance_metrics: Optional[Dict[str, float]] = None
@@ -132,9 +134,10 @@ class HealthCheck(BaseModel):
     status: str
     timestamp: datetime
     version: str
-    model_loaded: bool
-    model_info: Optional[ModelInfo] = None
+    is_model_loaded: bool
+    loaded_model_info: Optional[ModelInfo] = None
     system_metrics: Dict[str, Any]
+    runtime_parameters: Optional[Dict[str, Any]] = None
 
 
 class WebhookPayload(BaseModel):

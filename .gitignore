@@ -8,41 +8,100 @@ env/
 venv/
 ENV/
 .venv
+*.egg-info/
+dist/
+build/
+*.egg
 
-# Models
+# Models (large binary files)
 models/*.pt
+models/*.pth
 models/*.onnx
 models/*.engine
+models/*.safetensors
+models/*.pkl
+models/*.h5
+models/*.pb
 !models/.gitkeep
 
-# Config
+# Configuration
 config/local.yaml
 *.env
+.env.local
+.env.*.local
+!.env.example
 
-# Logs
+# Logs & Runtime
 logs/
 *.log
+*.pid
+*.seed
+*.pid.lock
 
-# Cache
+# Cache & Temp files
 .cache/
 *.cache
+__pycache__/
+.temp/
+tmp/
+temp/
+*.tmp
 
-# IDE
+# IDE & Editors
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-*
 
-# OS
+# OS Files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+desktop.ini
 
-# Testing
+# Testing & Coverage
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
 *.cover
+.hypothesis/
+.tox/
+nosetests.xml
+coverage.xml
+*.coveragerc
 
 # Docker
 *.pid
 docker-compose.override.yml
+.dockerignore.local
+
+# Output directories
+out/
+output/
+outputs/
+results/
+predictions/
+SAINet2.1_predicts/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Processing artifacts
+processing_log*.txt
+*.json.backup
+
+# Development
+scratch/
+sandbox/
+experiments/

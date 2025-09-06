@@ -2,10 +2,14 @@
 SAI Inference Service Configuration
 """
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, ConfigDict
 from pathlib import Path
 from typing import Optional, List
+from dotenv import load_dotenv
 import os
+
+# Force load .env file before settings initialization
+load_dotenv(override=True)
 
 
 class Settings(BaseSettings):
@@ -13,21 +17,21 @@ class Settings(BaseSettings):
     app_name: str = "SAI Inference Service"
     app_version: str = "1.0.0"
     api_prefix: str = "/api/v1"
-    host: str = Field(default="0.0.0.0", env="SAI_HOST")
-    port: int = Field(default=8888, env="SAI_PORT")
-    workers: int = Field(default=1, env="SAI_WORKERS")
+    host: str = Field(default="0.0.0.0", alias="SAI_HOST")
+    port: int = Field(default=8888, alias="SAI_PORT")
+    workers: int = Field(default=1, alias="SAI_WORKERS")
     
     # Model Configuration
-    model_dir: Path = Field(default=Path("models"), env="SAI_MODEL_DIR")
-    default_model: str = Field(default="sai_v2.1.pt", env="SAI_DEFAULT_MODEL")
-    model_device: str = Field(default="cpu", env="SAI_DEVICE")  # cpu, cuda, cuda:0
+    models_dir: Path = Field(default=Path("models"), alias="SAI_MODEL_DIR")
+    default_model: str = Field(default="sai_v2.1.pt", alias="SAI_DEFAULT_MODEL")
+    device: str = Field(default="cpu", alias="SAI_DEVICE")  # cpu, cuda, cuda:0
     # SAINet2.1 Reference Parameters (from inf_yolo11m_SAINet2.1.py)
-    model_confidence: float = Field(default=0.15, env="SAI_CONFIDENCE")  # Reference: conf=0.15
-    model_iou_threshold: float = Field(default=0.45, env="SAI_IOU_THRESHOLD")
+    confidence_threshold: float = Field(default=0.15, alias="SAI_CONFIDENCE")  # Reference: conf=0.15
+    iou_threshold: float = Field(default=0.45, alias="SAI_IOU_THRESHOLD")
     
     # SAINet2.1 Optimized Resolution (1920px - from reference)
-    input_size: int = Field(default=1920, env="SAI_INPUT_SIZE")  # Reference: imgsz=1920
-    max_detections: int = Field(default=100, env="SAI_MAX_DETECTIONS")
+    input_size: int = Field(default=1920, alias="SAI_INPUT_SIZE")  # Reference: imgsz=1920
+    max_detections: int = Field(default=100, alias="SAI_MAX_DETECTIONS")
     
     # Performance
     batch_size: int = Field(default=1, env="SAI_BATCH_SIZE")
@@ -58,10 +62,14 @@ class Settings(BaseSettings):
         env="SAI_ALLOWED_EXTENSIONS"
     )
     
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="allow",  # Allow extra fields from environment variables
+        protected_namespaces=('settings_',)  # Change protected namespace to avoid conflicts
+    )
 
 
+# Create settings instance - will load from .env and environment
 settings = Settings()

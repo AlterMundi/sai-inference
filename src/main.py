@@ -109,13 +109,30 @@ async def health_check():
             "cached_results": len(inference_engine.cache)
         }
         
+        # Add runtime parameters to ensure source of truth
+        runtime_params = {
+            "confidence_threshold": settings.confidence_threshold,
+            "iou_threshold": settings.iou_threshold,
+            "input_size": settings.input_size,
+            "device": settings.device,
+            "model_dir": str(settings.models_dir),
+            "default_model": settings.default_model
+        }
+        
+        # Update model info with actual runtime values if loaded
+        if model_info:
+            model_info.input_size = settings.input_size
+            model_info.confidence_threshold = settings.confidence_threshold
+            model_info.iou_threshold = settings.iou_threshold
+        
         return HealthCheck(
             status="healthy",
             timestamp=datetime.utcnow(),
             version=settings.app_version,
-            model_loaded=model_info is not None,
-            model_info=model_info,
-            system_metrics=system_metrics
+            is_model_loaded=model_info is not None,
+            loaded_model_info=model_info,
+            system_metrics=system_metrics,
+            runtime_parameters=runtime_params
         )
     except Exception as e:
         logger.error(f"Health check failed: {e}")
@@ -124,25 +141,34 @@ async def health_check():
 
 @app.get(f"{settings.api_prefix}/models")
 async def list_models():
-    """List available models"""
+    """List available models with smart discovery"""
     loaded_models = inference_engine.model_manager.list_models()
     model_info = [
         inference_engine.model_manager.get_model_info(name)
         for name in loaded_models
     ]
     
-    # Also list available model files
-    model_files = []
-    if settings.model_dir.exists():
-        model_files = [
-            f.name for f in settings.model_dir.glob("*.pt")
-            if f.name not in loaded_models
-        ]
+    # Use smart discovery for available models
+    discovered_models = inference_engine.model_manager.discover_models()
+    available_files = [
+        model for model in discovered_models 
+        if model not in loaded_models
+    ]
+    
+    # Get recommended model
+    recommended_model = inference_engine.model_manager.get_best_available_model()
     
     return {
         "loaded_models": model_info,
-        "available_files": model_files,
-        "current_model": inference_engine.model_manager.current_model_name
+        "available_files": available_files,
+        "current_model": inference_engine.model_manager.current_model_name,
+        "recommended_model": recommended_model,
+        "configured_default": settings.default_model,
+        "discovery_info": {
+            "models_dir": str(settings.models_dir),
+            "total_discovered": len(discovered_models),
+            "supported_extensions": [".pt", ".pth", ".onnx", ".engine"]
+        }
     }
 
 
@@ -435,6 +461,19 @@ def run_server():
     """Run the FastAPI server"""
     logger.info(f"Starting {settings.app_name} on {settings.host}:{settings.port}")
     logger.info(f"Device: {inference_engine.model_manager.device}")
+    
+    # Log runtime parameters for source of truth verification
+    logger.info("=" * 60)
+    logger.info("RUNTIME PARAMETERS (Source of Truth):")
+    logger.info(f"  Confidence Threshold: {settings.confidence_threshold}")
+    logger.info(f"  IOU Threshold: {settings.iou_threshold}")
+    logger.info(f"  Input Size: {settings.input_size}x{settings.input_size}")
+    logger.info(f"  Model Directory: {settings.models_dir}")
+    logger.info(f"  Default Model: {settings.default_model}")
+    logger.info(f"  Device: {settings.device}")
+    logger.info(f"  Cache Enabled: {settings.cache_enabled}")
+    logger.info("=" * 60)
+    
     logger.info(f"API docs available at: http://{settings.host}:{settings.port}{settings.api_prefix}/docs")
     logger.info(f"n8n webhook endpoint: http://{settings.host}:{settings.port}{settings.n8n_webhook_path}")
     
