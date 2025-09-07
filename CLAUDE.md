@@ -16,11 +16,18 @@ SAI Inference Service is a high-performance FastAPI-based REST API for fire and 
 4. **Models** (`src/models.py`): Pydantic data models for API requests/responses
 
 ### SAINet2.1 Reference Parameters
-The service is optimized for SAINet2.1 model with these critical parameters from `/mnt/n8n-data/SAINet/SAINet2.1/inf_yolo11m_SAINet2.1.py`:
+The service is optimized for SAINet2.1 model with these critical parameters:
 - **Input Resolution**: 1920px (reference: `imgsz=1920`)
 - **Confidence Threshold**: 0.15 (reference: `conf=0.15`)
 - **IOU Threshold**: 0.7 (reference: `iou=0.7`)
-- **Model Path**: `/mnt/n8n-data/SAINet/SAINet2.1/SAINet2.1_130epochs/weights/last.pt`
+- **Model Path**: `models/last.pt`
+
+### SystemD Integration
+The service includes proper systemd integration:
+- **Watchdog Support**: Sends keepalive notifications every 30s (`WatchdogSec=60`)
+- **Service Type**: `Type=notify` for proper startup/shutdown handling
+- **Health Monitoring**: Automatic restart if watchdog timeout occurs
+- **Graceful Shutdown**: Proper cleanup on service stop/restart
 
 ## Essential Commands
 
@@ -34,11 +41,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # Quick setup (creates venv, installs deps, copies models)
-./setup.sh
+./deployment/setup.sh
 
-# Create models directory and copy SAI model
+# Create models directory and place your model
 mkdir -p models
-cp /mnt/n8n-data/SAINet_v1.0/datasets/D-Fire/SAINet2.1/best.pt models/sai_v2.1.pt
+# Place your model file as 'last.pt' in the models/ directory
 ```
 
 ### Running the Service
@@ -61,7 +68,7 @@ sudo journalctl -u sai-inference -f
 ### Testing
 ```bash
 # Run comprehensive test suite
-python test_service.py
+python tests/test_service.py
 
 # Test specific endpoints
 curl http://localhost:8888/api/v1/health
@@ -141,7 +148,7 @@ Models are stored in the `models/` directory. The service supports:
 
 ## Development Tips
 
-1. **Model Location**: Primary SAI models are at `/mnt/n8n-data/SAINet_v1.0/`
+1. **Model Location**: Place your SAI model as `models/last.pt`
 2. **Performance**: Service handles ~50-100ms inference on CPU, with caching for repeated requests
 3. **Batch Processing**: Supports up to 10 images in parallel
 4. **Memory**: Requires ~2GB with model loaded
@@ -154,7 +161,7 @@ Models are stored in the `models/` directory. The service supports:
 python run.py
 
 # 2. Run test suite
-python test_service.py
+python tests/test_service.py
 
 # 3. Check logs
 tail -f logs/sai-inference.log

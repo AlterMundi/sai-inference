@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 import base64
 import io
+import asyncio
+import os
 
 from .config import settings
 from .models import (
@@ -31,6 +33,18 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Systemd watchdog support
+try:
+    from systemd import daemon
+    watchdog_enabled = True
+    logger.info("SystemD watchdog support enabled")
+except ImportError:
+    watchdog_enabled = False
+    logger.info("SystemD watchdog support not available (systemd-python not installed)")
+
+# Global watchdog state
+watchdog_task = None
 
 # Create FastAPI app
 app = FastAPI(
@@ -49,6 +63,52 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Systemd watchdog functionality
+async def watchdog_ping():
+    """Send periodic watchdog notifications to systemd"""
+    while True:
+        try:
+            if watchdog_enabled:
+                daemon.notify('WATCHDOG=1')
+                logger.debug("Sent watchdog ping to systemd")
+            await asyncio.sleep(30)  # Send every 30 seconds (less than 60s timeout)
+        except Exception as e:
+            logger.error(f"Watchdog ping failed: {e}")
+            await asyncio.sleep(30)
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize watchdog on startup"""
+    global watchdog_task
+    
+    if watchdog_enabled and os.environ.get('WATCHDOG_USEC'):
+        # Only start watchdog if systemd expects it
+        logger.info("Starting systemd watchdog task")
+        watchdog_task = asyncio.create_task(watchdog_ping())
+        # Notify systemd that we're ready
+        daemon.notify('READY=1')
+    else:
+        logger.info("SystemD watchdog not required or not available")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up watchdog on shutdown"""
+    global watchdog_task
+    
+    if watchdog_task:
+        logger.info("Stopping systemd watchdog task")
+        watchdog_task.cancel()
+        try:
+            await watchdog_task
+        except asyncio.CancelledError:
+            pass
+    
+    if watchdog_enabled:
+        daemon.notify('STOPPING=1')
 
 
 def verify_api_key(api_key: Optional[str] = None) -> bool:

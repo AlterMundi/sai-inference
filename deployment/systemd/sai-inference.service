@@ -1,0 +1,38 @@
+[Unit]
+Description=SAI Inference Service - Fire/Smoke Detection API
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+User=service
+Group=service
+WorkingDirectory=/opt/sai-inference
+EnvironmentFile=/etc/sai-inference/production.env
+Environment=PYTHONPATH=/opt/sai-inference
+ExecStart=/opt/sai-inference/venv/bin/uvicorn src.main:app --host ${SAI_HOST} --port ${SAI_PORT} --workers ${SAI_WORKERS}
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sai-inference /var/log/sai-inference /tmp
+PrivateTmp=true
+
+# Logging
+StandardOutput=append:/var/log/sai-inference/service.log
+StandardError=append:/var/log/sai-inference/error.log
+SyslogIdentifier=sai-inference
+
+# Health monitoring
+WatchdogSec=60
+
+[Install]
+WantedBy=multi-user.target

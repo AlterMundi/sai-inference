@@ -67,10 +67,9 @@ echo -e "${BLUE}═════════════════════�
 echo
 echo -e "Copy your YOLO model files (.pt) to the ${GREEN}models/${NC} directory:"
 echo
-echo -e "  ${BLUE}Example sources:${NC}"
-echo -e "  • /mnt/n8n-data/SAINet_v1.0/datasets/D-Fire/SAINet2.1/best.pt"
-echo -e "  • /mnt/n8n-data/SAINet_v1.0/run_stage2/weights/best.pt"
-echo -e "  • Your custom trained YOLO models"
+echo -e "  ${BLUE}Model setup:${NC}"
+echo -e "  • Place your model file as 'last.pt' in the models/ directory"
+echo -e "  • Or copy any YOLO .pt model to the models/ directory"
 echo
 echo -e "  ${BLUE}Copy command:${NC}"
 echo -e "  ${GREEN}cp /path/to/your/model.pt models/your_model_name.pt${NC}"

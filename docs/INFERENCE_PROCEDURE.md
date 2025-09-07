@@ -2,7 +2,7 @@
 
 ## Model Information
 - **Model**: SAINet v2.1 (YOLOv8s-based)
-- **File**: `/mnt/n8n-data/SAINet_v1.0/datasets/D-Fire/SAINet2.1/best.pt` (116MB)
+- **File**: `models/last.pt` (116MB)
 - **Classes**: 2 classes
   - `0`: smoke
   - `1`: fire

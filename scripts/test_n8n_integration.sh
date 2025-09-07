@@ -7,7 +7,7 @@
 set -e
 
 # Configuration
-TEST_IMAGE="/mnt/n8n-data/SAINet/predicts/img/sdis-07_brison-200_2024-02-02T11-24-22.jpg"
+TEST_IMAGE="test_image.jpg"  # Place a test image in the current directory
 N8N_WEBHOOK="https://n8n.altermundi.net/webhook-test/e861ad7c-8160-4964-8953-5e3a02657293"
 BEARER_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6Im44bldlYmhvb2tBY2Nlc3MiLCJpYXQiOjE2NzY0MDI4MDAsImV4cCI6MTcwNzk2MDgwMCwiaXNzIjoibjhuQXBpIiwiYXVkIjoid2ViaG9va0NsaWVudCJ9.HKt6HB1KChxEXUusXBFrFupyxUhr0C2WW5IEfKwYZnw"
 

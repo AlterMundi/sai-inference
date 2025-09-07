@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import argparse
 
 # Configuration
-SOURCE_DIR = "/mnt/n8n-data/SAINet/predicts/img/"
+SOURCE_DIR = "./input_images/"  # Place your images in this directory
 OUTPUT_DIR = "./out"
 API_URL = "http://localhost:8888/api/v1/infer"
 MAX_WORKERS = 4  # Concurrent requests
@@ -116,6 +116,8 @@ def process_single_image(image_path, output_dir):
 
 def main():
     parser = argparse.ArgumentParser(description='Process SAI images with fire/smoke detection')
+    parser.add_argument('path', nargs='?', default=SOURCE_DIR, 
+                       help=f'Path to directory containing images (default: {SOURCE_DIR})')
     parser.add_argument('--max-workers', type=int, default=MAX_WORKERS, 
                        help=f'Maximum concurrent workers (default: {MAX_WORKERS})')
     parser.add_argument('--limit', type=int, help='Limit number of images to process (for testing)')
@@ -127,11 +129,11 @@ def main():
     Path(OUTPUT_DIR).mkdir(exist_ok=True)
     
     # Get list of images to process
-    source_path = Path(SOURCE_DIR)
+    source_path = Path(args.path)
     image_files = list(source_path.glob(args.pattern))
     
     if not image_files:
-        print(f"No images found matching pattern '{args.pattern}' in {SOURCE_DIR}")
+        print(f"No images found matching pattern '{args.pattern}' in {args.path}")
         return
     
     if args.limit:
@@ -140,7 +142,7 @@ def main():
     
     print(f"🔥 SAI Image Processing Pipeline")
     print(f"═══════════════════════════════")
-    print(f"Source: {SOURCE_DIR}")
+    print(f"Source: {args.path}")
     print(f"Output: {OUTPUT_DIR}")
     print(f"Images: {len(image_files)} files")
     print(f"Workers: {args.max_workers}")
@@ -273,14 +275,14 @@ def main():
                 '-safe', '0',
                 '-i', 'input.txt',
                 '-c:v', 'libx264',
-                '-r', '12',  # 12 FPS for smooth playback
+                '-r', '6',  # 6 FPS for slower playback
                 '-pix_fmt', 'yuv420p',
                 '-crf', '18',  # High quality
                 video_name
             ]
             
             print(f"🎥 Running FFmpeg to create video: {video_name}")
-            print(f"   Frame rate: 12 FPS (smooth playback)")
+            print(f"   Frame rate: 6 FPS (slower playback)")
             print(f"   Images: {len(annotated_files)} chronologically sorted")
             
             result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
@@ -289,7 +291,7 @@ def main():
                 video_path = os.path.join(OUTPUT_DIR, video_name)
                 print(f"✅ Video generated successfully!")
                 print(f"📹 Video location: {video_path}")
-                print(f"🎬 Duration: ~{len(annotated_files)/12:.1f} seconds at 12 FPS")
+                print(f"🎬 Duration: ~{len(annotated_files)/6:.1f} seconds at 6 FPS")
                 
                 # Clean up temp file
                 os.remove('input.txt')

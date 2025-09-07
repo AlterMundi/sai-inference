@@ -205,20 +205,16 @@ class InferenceEngine:
             import shutil
             settings.models_dir.mkdir(parents=True, exist_ok=True)
             
-            # Try SAINet2.1 first (newest, best performance)
-            source = Path("/mnt/n8n-data/SAINet_v1.0/datasets/D-Fire/SAINet2.1/best.pt")
-            if source.exists():
+            # Look for model in local models directory
+            local_model = Path("models/last.pt")
+            if local_model.exists():
                 dest = settings.models_dir / "sai_v2.1.pt"
-                shutil.copy2(source, dest)
-                logger.info(f"Copied SAINet2.1 model to {dest}")
+                shutil.copy2(local_model, dest)
+                logger.info(f"Copied local model to {dest}")
                 return
             
-            # Fallback to stage2 model
-            source = Path("/mnt/n8n-data/SAINet_v1.0/run_stage2/weights/best.pt")
-            if source.exists():
-                dest = settings.models_dir / "sai_stage2.pt"
-                shutil.copy2(source, dest)
-                logger.info(f"Copied stage2 model to {dest}")
+            # No model found
+            logger.warning("No model found in models/last.pt - please add a model file")
                 
         except Exception as e:
             logger.error(f"Failed to copy development model: {e}")

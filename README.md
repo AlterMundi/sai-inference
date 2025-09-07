@@ -11,44 +11,49 @@ High-performance inference service for SAI fire/smoke detection, designed as a d
 - **Response caching** for improved performance
 - **Batch processing** for multiple images
 - **Docker & SystemD** deployment options
+- **Production-ready** with automated installation scripts
+
+## Repository Structure
+
+```
+sai-inference/
+├── src/                      # Core application code
+├── config/                   # Configuration templates
+├── deployment/               # Installation & deployment scripts
+├── scripts/                  # Utility scripts & batch tools
+├── tests/                    # Test suite
+├── docs/                     # Documentation
+├── examples/                 # Code examples & n8n workflows
+└── models/                   # AI model storage
+```
 
 ## Quick Start
 
-### 1. Setup Environment
+### 1. Development Setup
 
 ```bash
-# Create virtual environment
+# Quick setup script (recommended)
+./deployment/setup.sh
+
+# Or manual setup:
 python3 -m venv venv
 source venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Create models directory
 mkdir -p models
+# Place your model file as 'last.pt' in the models/ directory
 ```
 
-### 2. Copy Model
-
-```bash
-# Copy the best SAINet2.1 model
-cp /mnt/n8n-data/SAINet_v1.0/datasets/D-Fire/SAINet2.1/best.pt models/sai_v2.1.pt
-```
-
-### 3. Run Service
+### 2. Run Service
 
 ```bash
 # Development
 python run.py
 
-# Production with SystemD
-sudo cp sai-inference.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable sai-inference
-sudo systemctl start sai-inference
+# Production installation (automated)
+sudo ./deployment/install.sh
 
-# Docker
-docker-compose -f docker/docker-compose.yml up -d
+# Test the service
+python tests/test_service.py
 ```
 
 ## API Endpoints
@@ -200,15 +205,46 @@ The service automatically determines alert levels:
 
 ## Development
 
+### Project Structure
+
+- **`src/`** - Core application modules (main.py, inference.py, config.py, models.py)
+- **`deployment/`** - Production deployment scripts (install.sh, setup.sh, uninstall.sh)
+- **`scripts/`** - Utility scripts (process_images.py, test integrations)
+- **`tests/`** - Test suite and integration tests  
+- **`config/`** - Configuration templates for different environments
+- **`docs/`** - API documentation and usage guides
+- **`examples/`** - Code examples and n8n workflow templates
+
+### Testing & Quality
+
 ```bash
 # Run tests
-pytest tests/
+python tests/test_service.py
+
+# Test n8n integration
+./scripts/test_n8n_integration.sh
 
 # Format code
 black src/
 
 # Lint
 ruff src/
+
+# Process batch images
+python scripts/process_images.py /path/to/images/
+```
+
+### Deployment
+
+```bash
+# Development setup
+./deployment/setup.sh
+
+# Production installation (requires sudo)
+sudo ./deployment/install.sh
+
+# Uninstall service
+sudo ./deployment/uninstall.sh
 ```
 
 ## License

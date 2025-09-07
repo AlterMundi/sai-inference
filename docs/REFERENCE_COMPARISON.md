@@ -2,13 +2,13 @@
 
 ## Reference Implementation Analysis
 
-**Source**: `/mnt/n8n-data/SAINet_v1.0/datasets/D-Fire/SAINet2.1/inf_yolo11m_SAINet2.1.py`
+**Source**: SAINet2.1 inference script
 
 ### Critical Parameters from Reference
 
 ```python
 results = model.predict(
-    source="/mnt/n8n-data/SAINet_v1.0/datasets/D-Fire/img",
+    source="./input_images",  # Input images directory
     save=True,                       # Save annotated images
     show=False,                      # No display
     conf=0.15,                       # ⚠️ CRITICAL: Very low confidence threshold

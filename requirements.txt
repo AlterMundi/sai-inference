@@ -22,6 +22,7 @@ PyYAML==6.0.2
 # Monitoring and metrics
 prometheus-client==0.21.0
 psutil==6.1.0
+systemd-python==235
 
 # Caching
 aiocache==0.12.3
