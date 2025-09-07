@@ -230,10 +230,86 @@ def main():
     print(f"Images with fire: {fires_detected}")
     print(f"Images with smoke: {smoke_detected}")
     print(f"Detection rate: {detections_total/successful*100:.1f}% avg detections per image" if successful > 0 else "N/A")
+    
+    # Generate video from annotated images
+    print()
+    print(f"🎬 GENERATING VIDEO")
+    print(f"══════════════════")
+    
+    try:
+        import subprocess
+        import os
+        
+        # Change to output directory for video generation
+        os.chdir(OUTPUT_DIR)
+        
+        # Create input file list sorted chronologically by timestamp in filename
+        # Extract timestamp pattern: sdis-07_brison-200_2024-01-26T15-33-06
+        print("📝 Creating chronologically sorted file list...")
+        
+        # Get all annotated images
+        annotated_files = [f for f in os.listdir('.') if f.endswith('_annotated.jpg')]
+        
+        if annotated_files:
+            # Sort by timestamp extracted from filename
+            def extract_timestamp(filename):
+                # Extract timestamp like "2024-01-26T15-33-06" from filename
+                import re
+                match = re.search(r'(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})', filename)
+                return match.group(1) if match else filename
+            
+            annotated_files.sort(key=extract_timestamp)
+            
+            # Create FFmpeg input file
+            with open('input.txt', 'w') as f:
+                for img_file in annotated_files:
+                    f.write(f"file '{img_file}'\n")
+            
+            # Generate video with FFmpeg
+            video_name = f"sai_detection_results_{len(annotated_files)}images.mp4"
+            ffmpeg_cmd = [
+                'ffmpeg', '-y',  # Overwrite output file
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', 'input.txt',
+                '-c:v', 'libx264',
+                '-r', '12',  # 12 FPS for smooth playback
+                '-pix_fmt', 'yuv420p',
+                '-crf', '18',  # High quality
+                video_name
+            ]
+            
+            print(f"🎥 Running FFmpeg to create video: {video_name}")
+            print(f"   Frame rate: 12 FPS (smooth playback)")
+            print(f"   Images: {len(annotated_files)} chronologically sorted")
+            
+            result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                video_path = os.path.join(OUTPUT_DIR, video_name)
+                print(f"✅ Video generated successfully!")
+                print(f"📹 Video location: {video_path}")
+                print(f"🎬 Duration: ~{len(annotated_files)/12:.1f} seconds at 12 FPS")
+                
+                # Clean up temp file
+                os.remove('input.txt')
+            else:
+                print(f"❌ FFmpeg error: {result.stderr}")
+        else:
+            print("⚠️ No annotated images found for video generation")
+            
+    except ImportError:
+        print("⚠️ subprocess module not available")
+    except FileNotFoundError:
+        print("⚠️ FFmpeg not found - install with: sudo apt-get install ffmpeg")
+    except Exception as e:
+        print(f"❌ Video generation error: {e}")
+    
     print()
     print(f"📁 OUTPUT LOCATION: {OUTPUT_DIR}")
     print(f"   - Annotated images: *_annotated.jpg")
     print(f"   - Detection results: *_results.json")
+    print(f"   - Video summary: sai_detection_results_*images.mp4")
 
 if __name__ == "__main__":
     main()

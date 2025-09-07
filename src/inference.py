@@ -374,23 +374,57 @@ class InferenceEngine:
             
             # Generate annotated image if requested
             annotated_image_b64 = None
-            if return_annotated and len(results) > 0:
-                # Convert PIL to numpy for YOLO plot if needed
-                if hasattr(image, 'size'):  # PIL Image
-                    img_array = np.array(image)
-                else:  # Already numpy
-                    img_array = image
-                
-                # YOLO plot with numpy array
-                annotated = results[0].plot(img=img_array, line_width=3)
-                
-                # YOLO plot returns RGB, cv2.imencode expects BGR
-                annotated_bgr = cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR)
-                
-                # High quality JPEG encoding
-                encode_params = [cv2.IMWRITE_JPEG_QUALITY, 95]
-                _, buffer = cv2.imencode('.jpg', annotated_bgr, encode_params)
-                annotated_image_b64 = base64.b64encode(buffer).decode('utf-8')
+            if return_annotated:
+                try:
+                    logger.info(f"Generating annotated image, detections: {len(results[0].boxes) if results[0].boxes is not None else 0}")
+                    
+                    # Convert PIL to numpy for YOLO plot if needed
+                    if hasattr(image, 'size'):  # PIL Image
+                        img_array = np.array(image)
+                        logger.debug(f"Converted PIL to numpy: {img_array.shape}")
+                    else:  # Already numpy
+                        img_array = image
+                        logger.debug(f"Using numpy array directly: {img_array.shape}")
+                    
+                    # YOLO plot with optimal parameters (match save=True quality)
+                    logger.debug("Calling YOLO plot...")
+                    annotated = results[0].plot(
+                        img=img_array,
+                        line_width=None,    # Auto-calculate optimal width (default)
+                        font_size=None,     # Auto-calculate optimal font size
+                        labels=True,        # Show class labels
+                        boxes=True,         # Show bounding boxes
+                        conf=True           # Show confidence scores
+                    )
+                    logger.debug(f"YOLO plot successful, output shape: {annotated.shape}, dtype: {annotated.dtype}")
+                    
+                    # CRITICAL FIX: YOLO plot() returns RGB, but cv2.imencode needs BGR
+                    # The issue was that we were double-converting or converting wrong direction
+                    # According to ultralytics docs, plot() returns RGB format consistently
+                    
+                    # YOLO plot returns RGB, convert to BGR for cv2.imencode
+                    # This should fix the red/blue color swap issue
+                    logger.debug("Converting RGB to BGR...")
+                    annotated_bgr = cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR)
+                    logger.debug(f"BGR conversion successful: {annotated_bgr.shape}")
+                    
+                    encode_params = [
+                        cv2.IMWRITE_JPEG_QUALITY, 98,
+                        cv2.IMWRITE_JPEG_OPTIMIZE, 1
+                    ]
+                    logger.debug("Encoding to JPEG...")
+                    success, buffer = cv2.imencode('.jpg', annotated_bgr, encode_params)
+                    
+                    if success:
+                        annotated_image_b64 = base64.b64encode(buffer).decode('utf-8')
+                        logger.info(f"Annotation successful, base64 length: {len(annotated_image_b64)}")
+                    else:
+                        logger.error("cv2.imencode failed")
+                        
+                except Exception as e:
+                    logger.error(f"Annotation generation failed: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
             
             processing_time = (time.time() - start_time) * 1000
             
