@@ -98,32 +98,9 @@ install_config() {
         chmod 640 "$config_dest"
         log_success "Configuration installed at $config_dest"
     else
-        log_warning "Configuration template not found, creating basic config"
-        cat > "$config_dest" << 'EOF'
-# SAI Daily Test Service Configuration
-N8N_WEBHOOK_URL=https://your-n8n-instance/webhook/your-webhook-id
-N8N_AUTH_TOKEN=your-auth-token
-TEST_IMAGES_DIR=tests/images
-FIRE_SUBDIR=fire
-SMOKE_SUBDIR=smoke
-BOTH_SUBDIR=both
-TEST_LOCATION=TestLab
-TEST_DEVICE_ID=sai-test-runner-01
-RANDOMIZE_METADATA=true
-ENABLE_FIRE_TESTS=true
-ENABLE_SMOKE_TESTS=true
-ENABLE_BOTH_TESTS=true
-REQUEST_TIMEOUT=30
-MAX_RETRIES=3
-LOG_LEVEL=INFO
-LOG_FILE=/var/log/sai-inference/daily-test.log
-CRON_SCHEDULE=0 9,17 * * *
-CRON_DESCRIPTION=Twice daily at 9:00 AM and 5:00 PM
-CRON_ENABLED=true
-EOF
-        chown root:$SERVICE_GROUP "$config_dest"
-        chmod 640 "$config_dest"
-        log_warning "Basic configuration created - please edit $config_dest"
+        log_error "Configuration template not found at $config_source"
+        log_error "Please ensure config/daily-test.env exists in the project"
+        exit 1
     fi
 }
 
