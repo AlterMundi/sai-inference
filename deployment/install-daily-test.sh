@@ -115,6 +115,9 @@ REQUEST_TIMEOUT=30
 MAX_RETRIES=3
 LOG_LEVEL=INFO
 LOG_FILE=/var/log/sai-inference/daily-test.log
+CRON_SCHEDULE=0 9,17 * * *
+CRON_DESCRIPTION=Twice daily at 9:00 AM and 5:00 PM
+CRON_ENABLED=true
 EOF
         chown root:$SERVICE_GROUP "$config_dest"
         chmod 640 "$config_dest"

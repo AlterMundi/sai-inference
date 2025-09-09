@@ -67,8 +67,8 @@ class DailyTestConfig:
         self.max_retries = int(os.getenv("MAX_RETRIES", "3"))
         
         # Cron Schedule Configuration
-        self.cron_schedule = os.getenv("CRON_SCHEDULE", "0 9 * * *")
-        self.cron_description = os.getenv("CRON_DESCRIPTION", "Daily at 9:00 AM")
+        self.cron_schedule = os.getenv("CRON_SCHEDULE", "0 9,17 * * *")
+        self.cron_description = os.getenv("CRON_DESCRIPTION", "Twice daily at 9:00 AM and 5:00 PM")
         self.cron_enabled = os.getenv("CRON_ENABLED", "true").lower() == "true"
     
     def validate(self) -> List[str]:
@@ -309,6 +309,9 @@ class DailyTestService:
         self.logger.info("🔥 Starting SAI Daily Test Service")
         self.logger.info(f"Webhook URL: {self.config.webhook_url}")
         
+        # Check cron configuration on every run
+        self._check_cron_configuration()
+        
         # Discover test images
         test_images = self.discover_test_images()
         
@@ -370,6 +373,29 @@ class DailyTestService:
             self.logger.info("🎉 All tests passed - alert system operational")
         
         return results
+    
+    def _check_cron_configuration(self) -> None:
+        """Check if cron configuration matches current settings and warn if not"""
+        try:
+            status = self.show_cron_status()
+            
+            if status['needs_update']:
+                self.logger.warning("⚠️ Cron configuration mismatch detected!")
+                self.logger.warning(f"   Config Schedule: {status['config_schedule']} ({status['config_description']})")
+                if status['current_cron_entry']:
+                    current_schedule = status['current_cron_entry'].split()[0:5]  # Extract cron fields
+                    self.logger.warning(f"   Actual Schedule: {' '.join(current_schedule)}")
+                else:
+                    self.logger.warning("   Actual Schedule: Not scheduled")
+                self.logger.warning(f"   Config Enabled: {status['config_enabled']}")
+                self.logger.warning("   Run 'python daily_test.py --update-cron' to sync configuration")
+            elif status['config_enabled'] and status['is_scheduled']:
+                self.logger.info(f"✓ Cron schedule synchronized: {status['config_description']}")
+            elif not status['config_enabled']:
+                self.logger.info("✓ Cron scheduling disabled in configuration")
+            
+        except Exception as e:
+            self.logger.warning(f"Could not check cron configuration: {e}")
     
     def get_current_cron_entry(self) -> Optional[str]:
         """Get the current cron entry for this service"""
