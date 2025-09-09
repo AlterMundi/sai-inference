@@ -240,12 +240,12 @@ class InferenceEngine:
         # Log image properties
         logger.info(f"Image health check - Source: {source}, Size: {image.size}, Mode: {image.mode}, Format: {getattr(image, 'format', 'Unknown')}")
         
-        # Check for corrupted or invalid images
+        # Basic validation without verify() which consumes the image
         try:
-            # Verify image can be processed
-            image.verify()
-            # Reopen after verify (verify() consumes the image)
-            image = Image.open(image.fp) if hasattr(image, 'fp') else image
+            # Check if image has valid size (this validates it's properly loaded)
+            width, height = image.size
+            if width <= 0 or height <= 0:
+                raise ValueError(f"Invalid image dimensions: {width}x{height}")
         except Exception as e:
             logger.error(f"Image validation failed - Source: {source}, Error: {e}")
             raise ValueError(f"Corrupted or invalid image from {source}: {e}")
