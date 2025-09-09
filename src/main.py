@@ -253,8 +253,72 @@ async def switch_model(model_name: str):
 
 
 @app.post(f"{settings.api_prefix}/infer", response_model=InferenceResponse)
-async def infer(request: InferenceRequest, background_tasks: BackgroundTasks):
-    """Run inference on a single image"""
+async def infer(
+    file: UploadFile = File(...),
+    confidence_threshold: Optional[float] = None,
+    iou_threshold: Optional[float] = None,
+    return_image: bool = False,
+    webhook_url: Optional[str] = None,
+    background_tasks: BackgroundTasks = None
+):
+    """Run inference on binary image data (n8n compatible)"""
+    request_id = str(uuid.uuid4())
+    
+    # Check file extension
+    file_ext = Path(file.filename or "image.jpg").suffix.lower()
+    if file_ext not in settings.allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type {file_ext} not supported"
+        )
+    
+    # Check file size
+    contents = await file.read()
+    if len(contents) > settings.max_upload_size:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Max size: {settings.max_upload_size / (1024*1024):.1f}MB"
+        )
+    
+    try:
+        # Pass binary data directly to inference engine (optimal path)
+        # No base64 conversion needed - direct bytes → PIL Image → YOLO
+        
+        # Run inference
+        response = await inference_engine.infer(
+            image_data=contents,  # Raw bytes directly
+            request_id=request_id,
+            confidence_threshold=confidence_threshold,
+            iou_threshold=iou_threshold,
+            return_annotated=return_image,
+            metadata={
+                "filename": file.filename,
+                "content_type": file.content_type,
+                "source": "binary_upload"
+            }
+        )
+        
+        # Send webhook if requested
+        if webhook_url:
+            webhook_payload = WebhookPayload(
+                event_type="detection",
+                timestamp=datetime.utcnow(),
+                source="sai-inference",
+                data=response
+            )
+            webhook_payload.alert_level = webhook_payload.determine_alert_level()
+            background_tasks.add_task(send_webhook, webhook_url, webhook_payload)
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Binary inference failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(f"{settings.api_prefix}/infer/base64", response_model=InferenceResponse)
+async def infer_base64(request: InferenceRequest, background_tasks: BackgroundTasks):
+    """Run inference on base64 encoded image (legacy/secondary channel)"""
     request_id = str(uuid.uuid4())
     
     try:
@@ -275,7 +339,10 @@ async def infer(request: InferenceRequest, background_tasks: BackgroundTasks):
             iou_threshold=request.iou_threshold,
             max_detections=request.max_detections,
             return_annotated=request.return_image,
-            metadata=request.metadata
+            metadata={
+                **request.metadata,
+                "source": "base64_json"
+            }
         )
         
         # Send webhook if requested
@@ -292,55 +359,7 @@ async def infer(request: InferenceRequest, background_tasks: BackgroundTasks):
         return response
         
     except Exception as e:
-        logger.error(f"Inference failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post(f"{settings.api_prefix}/infer/file", response_model=InferenceResponse)
-async def infer_file(
-    file: UploadFile = File(...),
-    confidence_threshold: Optional[float] = None,
-    iou_threshold: Optional[float] = None,
-    return_image: bool = False,
-    background_tasks: BackgroundTasks = None
-):
-    """Run inference on uploaded file"""
-    request_id = str(uuid.uuid4())
-    
-    # Check file extension
-    file_ext = Path(file.filename).suffix.lower()
-    if file_ext not in settings.allowed_extensions:
-        raise HTTPException(
-            status_code=400,
-            detail=f"File type {file_ext} not supported"
-        )
-    
-    # Check file size
-    contents = await file.read()
-    if len(contents) > settings.max_upload_size:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File too large. Max size: {settings.max_upload_size / (1024*1024):.1f}MB"
-        )
-    
-    try:
-        # Convert to base64
-        image_data = base64.b64encode(contents).decode('utf-8')
-        
-        # Run inference
-        response = await inference_engine.infer(
-            image_data=image_data,
-            request_id=request_id,
-            confidence_threshold=confidence_threshold,
-            iou_threshold=iou_threshold,
-            return_annotated=return_image,
-            metadata={"filename": file.filename}
-        )
-        
-        return response
-        
-    except Exception as e:
-        logger.error(f"Inference on file failed: {e}")
+        logger.error(f"Base64 inference failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -389,14 +408,98 @@ async def infer_batch(request: BatchInferenceRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# n8n Webhook endpoint
+# n8n Webhook endpoints
 @app.post(settings.n8n_webhook_path)
-async def n8n_webhook(
+async def n8n_webhook_binary(
+    file: UploadFile = File(...),
+    confidence_threshold: Optional[float] = None,
+    iou_threshold: Optional[float] = None,
+    return_image: bool = False,
+    workflow_id: Optional[str] = None,
+    execution_id: Optional[str] = None,
+    callback_url: Optional[str] = None,
+    background_tasks: BackgroundTasks = None,
+    api_key: Optional[str] = None
+):
+    """n8n webhook endpoint for binary image processing (primary)"""
+    
+    # Verify API key
+    if not verify_api_key(api_key):
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    request_id = str(uuid.uuid4())
+    
+    try:
+        # Read binary data
+        contents = await file.read()
+        
+        # Check file size
+        if len(contents) > settings.max_upload_size:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Max size: {settings.max_upload_size / (1024*1024):.1f}MB"
+            )
+        
+        # Pass binary data directly (optimal n8n path)
+        # No base64 conversion - direct bytes → PIL Image → YOLO
+        
+        # Run inference
+        response = await inference_engine.infer(
+            image_data=contents,  # Raw bytes directly
+            request_id=request_id,
+            confidence_threshold=confidence_threshold,
+            iou_threshold=iou_threshold,
+            return_annotated=return_image,
+            metadata={
+                "source": "n8n_webhook_binary",
+                "filename": file.filename,
+                "content_type": file.content_type,
+                "workflow_id": workflow_id,
+                "execution_id": execution_id
+            }
+        )
+        
+        # Create webhook payload
+        webhook_payload = WebhookPayload(
+            event_type="detection",
+            timestamp=datetime.utcnow(),
+            source="sai-inference",
+            data=response
+        )
+        webhook_payload.alert_level = webhook_payload.determine_alert_level()
+        
+        # Send to callback URL if provided
+        if callback_url:
+            background_tasks.add_task(send_webhook, callback_url, webhook_payload)
+        
+        # Return response in n8n-friendly format
+        return {
+            "success": True,
+            "request_id": request_id,
+            "detections": len(response.detections),
+            "has_fire": response.has_fire,
+            "has_smoke": response.has_smoke,
+            "alert_level": webhook_payload.alert_level,
+            "processing_time_ms": response.processing_time_ms,
+            "data": response.model_dump(mode="json")
+        }
+        
+    except Exception as e:
+        logger.error(f"n8n binary webhook processing failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "request_id": request_id
+        }
+
+
+@app.post(f"{settings.n8n_webhook_path}/json")
+async def n8n_webhook_json(
     request: Dict[str, Any],
     background_tasks: BackgroundTasks,
     api_key: Optional[str] = None
 ):
-    """n8n webhook endpoint for image processing"""
+    """n8n webhook endpoint for JSON/base64 image processing (legacy)"""
     
     # Verify API key
     if not verify_api_key(api_key):
@@ -432,7 +535,7 @@ async def n8n_webhook(
             iou_threshold=request.get("iou_threshold"),
             return_annotated=request.get("return_image", False),
             metadata={
-                "source": "n8n_webhook",
+                "source": "n8n_webhook_json",
                 "workflow_id": request.get("workflow_id"),
                 "execution_id": request.get("execution_id")
             }
@@ -464,7 +567,7 @@ async def n8n_webhook(
         }
         
     except Exception as e:
-        logger.error(f"n8n webhook processing failed: {e}")
+        logger.error(f"n8n JSON webhook processing failed: {e}")
         return {
             "success": False,
             "error": str(e)

@@ -43,9 +43,10 @@ pip install -r requirements.txt
 # Quick setup (creates venv, installs deps, copies models)
 ./deployment/setup.sh
 
-# Create models directory and place your model
+# Download and setup model
 mkdir -p models
-# Place your model file as 'last.pt' in the models/ directory
+curl -LO https://github.com/AlterMundi/sai-inference/releases/download/v0.1/last.pt
+mv last.pt models/
 ```
 
 ### Running the Service

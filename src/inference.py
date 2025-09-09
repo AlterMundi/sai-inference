@@ -221,19 +221,72 @@ class InferenceEngine:
     
     
     def _decode_image_direct(self, image_data: str):
-        """Direct base64 to PIL - let YOLO handle everything else"""
-        # Remove data URL prefix if present
-        if "," in image_data:
-            image_data = image_data.split(",")[1]
+        """Direct base64 to PIL with health checks"""
+        try:
+            # Remove data URL prefix if present
+            if "," in image_data:
+                image_data = image_data.split(",")[1]
+            
+            image_bytes = base64.b64decode(image_data)
+            image = Image.open(io.BytesIO(image_bytes))
+            return self._validate_and_prepare_image(image, "base64_string")
+        except Exception as e:
+            logger.error(f"Base64 image decoding failed: {e}")
+            raise
+    
+    def _validate_and_prepare_image(self, image: Image.Image, source: str = "unknown") -> Image.Image:
+        """Health check and prepare image for YOLO processing with proper logging"""
         
-        image_bytes = base64.b64decode(image_data)
-        image = Image.open(io.BytesIO(image_bytes))
+        # Log image properties
+        logger.info(f"Image health check - Source: {source}, Size: {image.size}, Mode: {image.mode}, Format: {getattr(image, 'format', 'Unknown')}")
         
-        # Only convert to RGB if not already - minimal intervention
+        # Check for corrupted or invalid images
+        try:
+            # Verify image can be processed
+            image.verify()
+            # Reopen after verify (verify() consumes the image)
+            image = Image.open(image.fp) if hasattr(image, 'fp') else image
+        except Exception as e:
+            logger.error(f"Image validation failed - Source: {source}, Error: {e}")
+            raise ValueError(f"Corrupted or invalid image from {source}: {e}")
+        
+        # Check image dimensions
+        width, height = image.size
+        if width < 32 or height < 32:
+            logger.error(f"Image too small - Source: {source}, Size: {width}x{height}, Minimum: 32x32")
+            raise ValueError(f"Image too small: {width}x{height}. Minimum size is 32x32 pixels")
+        
+        if width > 8192 or height > 8192:
+            logger.warning(f"Very large image - Source: {source}, Size: {width}x{height}, May cause memory issues")
+        
+        # RGB conversion with logging
         if image.mode != "RGB":
-            image = image.convert("RGB")
+            logger.info(f"Converting image mode - Source: {source}, From: {image.mode}, To: RGB")
+            try:
+                image = image.convert("RGB")
+                logger.info(f"Image mode conversion successful - Source: {source}")
+            except Exception as e:
+                logger.error(f"Image mode conversion failed - Source: {source}, Error: {e}")
+                raise ValueError(f"Failed to convert image to RGB from {source}: {e}")
+        else:
+            logger.debug(f"Image already in RGB mode - Source: {source}")
         
+        # Final validation
+        if image.mode != "RGB":
+            logger.error(f"Image mode validation failed - Source: {source}, Final mode: {image.mode}")
+            raise ValueError(f"Image processing failed: expected RGB, got {image.mode}")
+        
+        logger.info(f"Image health check passed - Source: {source}, Final size: {image.size}")
         return image
+    
+    def _decode_image_binary(self, image_bytes: bytes):
+        """Direct binary bytes to PIL - optimal path with health checks"""
+        try:
+            image = Image.open(io.BytesIO(image_bytes))
+            return self._validate_and_prepare_image(image, "binary_bytes")
+        except Exception as e:
+            logger.error(f"Binary image decoding failed: {e}")
+            raise
     
     # CACHE METHODS COMPLETELY REMOVED TO FIX IDENTICAL OUTPUT BUG
     # def _generate_cache_key(self, image_data: str, params: Dict[str, Any]) -> str:
@@ -277,7 +330,7 @@ class InferenceEngine:
     
     async def infer(
         self,
-        image_data: Union[str, np.ndarray],
+        image_data: Union[str, bytes, np.ndarray],
         request_id: str,
         confidence_threshold: Optional[float] = None,
         iou_threshold: Optional[float] = None,
@@ -296,10 +349,15 @@ class InferenceEngine:
         
         
         try:
-            # Direct image handling - no BS overhead
+            # Handle different input types optimally
             if isinstance(image_data, str):
-                image = self._decode_image_direct(image_data)  # PIL Image directly
+                # Base64 string (legacy path)
+                image = self._decode_image_direct(image_data)
+            elif isinstance(image_data, bytes):
+                # Raw binary bytes (optimal path)
+                image = self._decode_image_binary(image_data)
             else:
+                # numpy array (direct path)
                 image = image_data
             
             # Get original dimensions for coordinate scaling
