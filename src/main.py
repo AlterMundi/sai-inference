@@ -26,6 +26,7 @@ from .models import (
     WebhookPayload
 )
 from .inference import inference_engine
+from .inference_mosaic import mosaic_inference_engine
 
 # Configure logging
 logging.basicConfig(
@@ -363,6 +364,71 @@ async def infer_base64(request: InferenceRequest, background_tasks: BackgroundTa
         
     except Exception as e:
         logger.error(f"Base64 inference failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(f"{settings.api_prefix}/infer/mosaic", response_model=InferenceResponse)
+async def infer_mosaic(
+    file: UploadFile = File(...),
+    confidence_threshold: Optional[float] = Form(None),
+    iou_threshold: Optional[float] = Form(None),
+    return_image: Optional[str] = Form("false"),
+    webhook_url: Optional[str] = Form(None),
+    background_tasks: BackgroundTasks = None
+):
+    """Run mosaic inference on large images using 640x640 overlapping crops"""
+    request_id = str(uuid.uuid4())
+    
+    # Check file extension
+    file_ext = Path(file.filename or "image.jpg").suffix.lower()
+    if file_ext not in settings.allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type {file_ext} not supported"
+        )
+    
+    # Check file size
+    contents = await file.read()
+    if len(contents) > settings.max_upload_size:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Max size: {settings.max_upload_size / (1024*1024):.1f}MB"
+        )
+    
+    try:
+        # Convert form data string to boolean
+        return_annotated_image = bool(return_image and return_image.lower() in ("true", "1", "yes", "on"))
+        
+        # Run mosaic inference using 640x640 crops
+        response = await mosaic_inference_engine.infer_mosaic(
+            image_data=contents,  # Raw bytes directly
+            request_id=request_id,
+            confidence_threshold=confidence_threshold,
+            iou_threshold=iou_threshold,
+            return_annotated=return_annotated_image,
+            metadata={
+                "filename": file.filename,
+                "content_type": file.content_type,
+                "source": "mosaic_inference",
+                "endpoint": "/api/v1/infer/mosaic"
+            }
+        )
+        
+        # Send webhook if requested
+        if webhook_url:
+            webhook_payload = WebhookPayload(
+                event_type="detection",
+                timestamp=datetime.utcnow(),
+                source="sai-inference-mosaic",
+                data=response
+            )
+            webhook_payload.alert_level = webhook_payload.determine_alert_level()
+            background_tasks.add_task(send_webhook, webhook_url, webhook_payload)
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Mosaic inference failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
