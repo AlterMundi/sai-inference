@@ -50,9 +50,21 @@ class DailyTestConfig:
         self.webhook_url = os.getenv("N8N_WEBHOOK_URL", "")
         self.auth_token = os.getenv("N8N_AUTH_TOKEN", "")
         
-        # Test Images Configuration
-        self.test_images_dir = Path(os.getenv("TEST_IMAGES_DIR", "tests/images"))
-        self.test_labels_dir = Path(os.getenv("TEST_LABELS_DIR", "tests/labels"))
+        # Test Images Configuration - resolve relative to installation root
+        install_root = Path(__file__).parent.parent  # /opt/sai-inference
+        test_images_path = os.getenv("TEST_IMAGES_DIR", "tests/images")
+        test_labels_path = os.getenv("TEST_LABELS_DIR", "tests/labels")
+        
+        # Make paths absolute if they're relative
+        if not os.path.isabs(test_images_path):
+            self.test_images_dir = install_root / test_images_path
+        else:
+            self.test_images_dir = Path(test_images_path)
+            
+        if not os.path.isabs(test_labels_path):
+            self.test_labels_dir = install_root / test_labels_path
+        else:
+            self.test_labels_dir = Path(test_labels_path)
         self.fire_subdir = os.getenv("FIRE_SUBDIR", "fire")
         self.smoke_subdir = os.getenv("SMOKE_SUBDIR", "smoke")
         self.both_subdir = os.getenv("BOTH_SUBDIR", "both")
