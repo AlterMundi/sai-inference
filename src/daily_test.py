@@ -22,9 +22,13 @@ class DailyTestConfig:
     """Configuration for daily test service"""
     
     def __init__(self, config_file: Optional[str] = None):
+        # Store the config file path for later reference
+        self.config_file_path = None
+        
         # Load configuration from environment file
         if config_file and Path(config_file).exists():
             load_dotenv(config_file, override=True)
+            self.config_file_path = config_file
         else:
             # Try default locations
             default_configs = [
@@ -35,7 +39,12 @@ class DailyTestConfig:
             for config_path in default_configs:
                 if Path(config_path).exists():
                     load_dotenv(config_path, override=True)
+                    self.config_file_path = config_path
                     break
+                    
+        # Set fallback if no config file was found
+        if self.config_file_path is None:
+            self.config_file_path = "/etc/sai-inference/daily-test.env"
         
         # n8n Configuration
         self.webhook_url = os.getenv("N8N_WEBHOOK_URL", "")
@@ -429,7 +438,7 @@ class DailyTestService:
             
             # Remove existing entries for this script
             script_path = os.path.abspath(__file__)
-            config_path = os.path.abspath(self.config.model_config.env_file or "/etc/sai-inference/daily-test.env")
+            config_path = os.path.abspath(self.config.config_file_path or "/etc/sai-inference/daily-test.env")
             
             lines = []
             removed_count = 0
