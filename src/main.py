@@ -1,7 +1,7 @@
 """
 SAI Inference Service - FastAPI Application
 """
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
@@ -255,10 +255,10 @@ async def switch_model(model_name: str):
 @app.post(f"{settings.api_prefix}/infer", response_model=InferenceResponse)
 async def infer(
     file: UploadFile = File(...),
-    confidence_threshold: Optional[float] = None,
-    iou_threshold: Optional[float] = None,
-    return_image: bool = False,
-    webhook_url: Optional[str] = None,
+    confidence_threshold: Optional[float] = Form(None),
+    iou_threshold: Optional[float] = Form(None),
+    return_image: Optional[str] = Form("false"),
+    webhook_url: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = None
 ):
     """Run inference on binary image data (n8n compatible)"""
@@ -281,6 +281,9 @@ async def infer(
         )
     
     try:
+        # Convert form data string to boolean
+        return_annotated_image = bool(return_image and return_image.lower() in ("true", "1", "yes", "on"))
+        
         # Pass binary data directly to inference engine (optimal path)
         # No base64 conversion needed - direct bytes → PIL Image → YOLO
         
@@ -290,7 +293,7 @@ async def infer(
             request_id=request_id,
             confidence_threshold=confidence_threshold,
             iou_threshold=iou_threshold,
-            return_annotated=return_image,
+            return_annotated=return_annotated_image,
             metadata={
                 "filename": file.filename,
                 "content_type": file.content_type,
@@ -412,14 +415,14 @@ async def infer_batch(request: BatchInferenceRequest):
 @app.post(settings.n8n_webhook_path)
 async def n8n_webhook_binary(
     file: UploadFile = File(...),
-    confidence_threshold: Optional[float] = None,
-    iou_threshold: Optional[float] = None,
-    return_image: bool = False,
-    workflow_id: Optional[str] = None,
-    execution_id: Optional[str] = None,
-    callback_url: Optional[str] = None,
+    confidence_threshold: Optional[float] = Form(None),
+    iou_threshold: Optional[float] = Form(None),
+    return_image: Optional[str] = Form("false"),
+    workflow_id: Optional[str] = Form(None),
+    execution_id: Optional[str] = Form(None),
+    callback_url: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = None,
-    api_key: Optional[str] = None
+    api_key: Optional[str] = Form(None)
 ):
     """n8n webhook endpoint for binary image processing (primary)"""
     
@@ -440,6 +443,9 @@ async def n8n_webhook_binary(
                 detail=f"File too large. Max size: {settings.max_upload_size / (1024*1024):.1f}MB"
             )
         
+        # Convert form data string to boolean
+        return_annotated_image = bool(return_image and return_image.lower() in ("true", "1", "yes", "on"))
+        
         # Pass binary data directly (optimal n8n path)
         # No base64 conversion - direct bytes → PIL Image → YOLO
         
@@ -449,7 +455,7 @@ async def n8n_webhook_binary(
             request_id=request_id,
             confidence_threshold=confidence_threshold,
             iou_threshold=iou_threshold,
-            return_annotated=return_image,
+            return_annotated=return_annotated_image,
             metadata={
                 "source": "n8n_webhook_binary",
                 "filename": file.filename,
