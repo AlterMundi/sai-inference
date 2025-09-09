@@ -47,7 +47,7 @@ check_root() {
     fi
 }
 
-# Check if main service is installed
+# Check if main service is installed and daily test script exists
 check_main_service() {
     if [[ ! -d "$INSTALL_DIR" ]]; then
         log_error "Main SAI inference service not found at $INSTALL_DIR"
@@ -55,8 +55,11 @@ check_main_service() {
         exit 1
     fi
     
-    if [[ ! -f "$INSTALL_DIR/src/daily_test.py" ]]; then
-        log_error "Daily test script not found. Please ensure it exists in src/daily_test.py"
+    # Check for daily test script in current project directory (before copying)
+    local project_root="$(dirname "$SCRIPT_DIR")"
+    if [[ ! -f "$project_root/src/daily_test.py" ]]; then
+        log_error "Daily test script not found at $project_root/src/daily_test.py"
+        log_error "Please ensure the script exists in the project src/ directory"
         exit 1
     fi
 }
@@ -245,6 +248,39 @@ install_dependencies() {
     fi
 }
 
+# Copy daily test script and test data to installation directory
+copy_daily_test_files() {
+    log_info "Copying daily test script and test data to installation directory..."
+    
+    local project_root="$(dirname "$SCRIPT_DIR")"
+    
+    # Copy the daily test script
+    local source_script="$project_root/src/daily_test.py"
+    local dest_script="$INSTALL_DIR/src/daily_test.py"
+    cp "$source_script" "$dest_script"
+    chown $SERVICE_USER:$SERVICE_GROUP "$dest_script"
+    chmod 755 "$dest_script"
+    
+    # Copy test images and labels if they exist
+    if [[ -d "$project_root/tests/images" ]]; then
+        log_info "Copying test images..."
+        cp -r "$project_root/tests/images"/* "$INSTALL_DIR/tests/images/" 2>/dev/null || true
+        chown -R $SERVICE_USER:$SERVICE_GROUP "$INSTALL_DIR/tests/images"
+        chmod -R 644 "$INSTALL_DIR/tests/images"
+        find "$INSTALL_DIR/tests/images" -type d -exec chmod 755 {} \;
+    fi
+    
+    if [[ -d "$project_root/tests/labels" ]]; then
+        log_info "Copying test labels..."
+        cp -r "$project_root/tests/labels"/* "$INSTALL_DIR/tests/labels/" 2>/dev/null || true
+        chown -R $SERVICE_USER:$SERVICE_GROUP "$INSTALL_DIR/tests/labels"
+        chmod -R 644 "$INSTALL_DIR/tests/labels"
+        find "$INSTALL_DIR/tests/labels" -type d -exec chmod 755 {} \;
+    fi
+    
+    log_success "Daily test files copied successfully"
+}
+
 # Setup dynamic cron scheduling
 setup_cron() {
     log_info "Setting up dynamic cron scheduling for daily test service..."
@@ -385,6 +421,7 @@ main() {
     install_config
     setup_test_images
     install_dependencies
+    copy_daily_test_files
     setup_cron
     
     # Post-installation verification
