@@ -145,6 +145,10 @@ echo -e "   ${GREEN}sudo systemctl daemon-reload${NC}"
 echo -e "   ${GREEN}sudo systemctl enable sai-inference${NC}"
 echo -e "   ${GREEN}sudo systemctl start sai-inference${NC}"
 echo
+echo -e "5. ${BLUE}Optional - Install daily test service:${NC}"
+echo -e "   ${GREEN}sudo ./deployment/install-daily-test.sh${NC}"
+echo -e "   ${YELLOW}(Automated testing for alert system validation)${NC}"
+echo
 echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
 echo -e "${YELLOW}SERVICE ENDPOINTS:${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
