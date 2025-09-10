@@ -27,4 +27,4 @@ Simply copy fire detection images to this directory:
 cp your_fire_image.jpg /path/to/sai-inference/tests/images/fire/
 ```
 
-Multiple images provide test variety and reduce cache effects.
+Multiple images provide test variety.

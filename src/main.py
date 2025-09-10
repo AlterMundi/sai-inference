@@ -166,8 +166,7 @@ async def health_check():
         system_metrics = {
             "cpu_usage": cpu_percent,
             "memory_usage": memory.percent,
-            "memory_available_gb": memory.available / (1024**3),
-            "cached_results": 0  # Cache removed to fix identical output bug
+            "memory_available_gb": memory.available / (1024**3)
         }
         
         # Add runtime parameters to ensure source of truth
@@ -706,7 +705,6 @@ def run_server():
     logger.info(f"  Model Directory: {settings.models_dir}")
     logger.info(f"  Default Model: {settings.default_model}")
     logger.info(f"  Device: {settings.device}")
-    logger.info(f"  Cache Enabled: {settings.cache_enabled}")
     logger.info("=" * 60)
     
     logger.info(f"API docs available at: http://{settings.host}:{settings.port}{settings.api_prefix}/docs")

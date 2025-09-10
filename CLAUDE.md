@@ -137,7 +137,6 @@ Key environment variables (`.env` file):
 - `SAI_CONFIDENCE`: Detection confidence (0.15 for SAINet2.1)
 - `SAI_INPUT_SIZE`: Input resolution (1920 for SAINet2.1)
 - `SAI_API_KEY`: Optional API key for authentication
-- `SAI_REDIS_URL`: Redis URL for distributed caching
 
 ## Model Management
 
@@ -150,7 +149,7 @@ Models are stored in the `models/` directory. The service supports:
 ## Development Tips
 
 1. **Model Location**: Place your SAI model as `models/last.pt`
-2. **Performance**: Service handles ~50-100ms inference on CPU, with caching for repeated requests
+2. **Performance**: Service handles ~50-100ms inference on CPU (fresh inference each time for critical accuracy)
 3. **Batch Processing**: Supports up to 10 images in parallel
 4. **Memory**: Requires ~2GB with model loaded
 5. **Alert Levels**: Automatically determines severity based on detection counts and confidence

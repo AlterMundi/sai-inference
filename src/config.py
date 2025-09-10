@@ -36,8 +36,6 @@ class Settings(BaseSettings):
     # Performance
     batch_size: int = Field(default=1, env="SAI_BATCH_SIZE")
     max_queue_size: int = Field(default=100, env="SAI_MAX_QUEUE")
-    cache_enabled: bool = Field(default=True, env="SAI_CACHE_ENABLED")
-    cache_ttl: int = Field(default=300, env="SAI_CACHE_TTL")  # seconds
     
     # n8n Integration
     n8n_webhook_path: str = Field(default="/webhook/sai", env="SAI_WEBHOOK_PATH")
@@ -52,8 +50,6 @@ class Settings(BaseSettings):
     metrics_port: int = Field(default=9090, env="SAI_METRICS_PORT")
     log_level: str = Field(default="INFO", env="SAI_LOG_LEVEL")
     
-    # Redis Cache (optional)
-    redis_url: Optional[str] = Field(default=None, env="SAI_REDIS_URL")
     
     # File Upload
     max_upload_size: int = Field(default=50 * 1024 * 1024, env="SAI_MAX_UPLOAD")  # 50MB

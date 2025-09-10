@@ -27,4 +27,4 @@ Simply copy smoke detection images to this directory:
 cp your_smoke_image.jpg /path/to/sai-inference/tests/images/smoke/
 ```
 
-Multiple images provide test variety and reduce cache effects.
+Multiple images provide test variety.

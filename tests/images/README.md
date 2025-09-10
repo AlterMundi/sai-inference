@@ -47,7 +47,7 @@ The daily test service (`src/daily_test.py`) automatically discovers images in t
 ### Test Selection
 
 - The service randomly selects one image from each enabled category per test run
-- Multiple images per category provide test variety and reduce cache effects
+- Multiple images per category provide test variety
 - At least one image per enabled category is required
 
 ## Configuration

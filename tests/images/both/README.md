@@ -28,7 +28,7 @@ Simply copy combined detection images to this directory:
 cp your_fire_and_smoke_image.jpg /path/to/sai-inference/tests/images/both/
 ```
 
-Multiple images provide test variety and reduce cache effects.
+Multiple images provide test variety.
 
 ## Special Considerations
 Images in this directory typically trigger the highest priority alerts since they indicate both types of hazards simultaneously. Ensure your n8n workflows and notification systems are properly configured for these combined detection scenarios.

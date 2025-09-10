@@ -99,7 +99,6 @@ python run.py                 # Start service on port 8888
   "model_version": "sai_v2.1.pt",
   
   "metadata": {
-    "cache_hit": false,
     "camera_id": "cam_01",
     "location": "warehouse_A"
   }

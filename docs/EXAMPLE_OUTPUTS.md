@@ -82,7 +82,6 @@
   "annotated_image": null,
   "model_version": "sai_v2.1.pt",
   "metadata": {
-    "cache_hit": false,
     "processing_device": "cpu"
   }
 }
@@ -148,7 +147,7 @@
   "annotated_image": null,
   "model_version": "sai_v2.1.pt",
   "metadata": {
-    "cache_hit": false
+    "processing_device": "cpu"
   }
 }
 ```
@@ -182,8 +181,7 @@
   "annotated_image": null,
   "model_version": "sai_v2.1.pt",
   "metadata": {
-    "cache_hit": true,  // Same image processed before
-    "cache_age_seconds": 45
+    "processing_device": "cpu"
   }
 }
 ```

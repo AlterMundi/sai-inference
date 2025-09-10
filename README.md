@@ -184,7 +184,6 @@ curl -X POST http://localhost:8888/api/v1/models/switch?model_name=sai_v2.1.pt
 
 - **Inference Speed**: ~50-100ms per image (CPU)
 - **Batch Processing**: Up to 10 images in parallel
-- **Cache Hit Rate**: ~30% for typical workflows
 - **Memory Usage**: ~2GB with model loaded
 - **Concurrent Requests**: Handles 100+ simultaneous connections
 

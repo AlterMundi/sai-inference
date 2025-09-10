@@ -204,7 +204,6 @@ def postprocess_detections(results, scale, padding, original_size):
   "annotated_image": null,  // Base64 if return_image=true
   "model_version": "sai_v2.1.pt",
   "metadata": {
-    "cache_hit": false,
     "source": "camera_01"
   }
 }
