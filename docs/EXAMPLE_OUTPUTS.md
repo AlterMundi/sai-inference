@@ -371,26 +371,3 @@
   "request_id": "h5m4i9j8-1k2l-3m4n-5o6p-7q8r9s0t1u2v"
 }
 ```
-
-## Performance Benchmarks
-
-### Processing Times by Image Size
-
-| Resolution | CPU (ms) | GPU (ms) | Memory (MB) |
-|------------|----------|----------|-------------|
-| 640x480    | 95-120   | 12-18    | 1,850       |
-| 1280x720   | 125-150  | 15-22    | 1,920       |
-| 1920x1080  | 140-180  | 18-28    | 2,050       |
-| 3840x2160  | 220-280  | 28-40    | 2,400       |
-
-### Detection Accuracy by Scenario
-
-| Scenario Type | Precision | Recall | F1-Score |
-|---------------|-----------|--------|----------|
-| Indoor Fire   | 0.89      | 0.84   | 0.86     |
-| Outdoor Fire  | 0.85      | 0.79   | 0.82     |
-| Dense Smoke   | 0.82      | 0.76   | 0.79     |
-| Light Smoke   | 0.74      | 0.68   | 0.71     |
-| Industrial    | 0.87      | 0.82   | 0.84     |
-
-The SAINet2.1 model provides consistent, high-accuracy detection across various fire and smoke scenarios with predictable processing times and memory usage patterns.

@@ -31,10 +31,10 @@ curl -X POST http://localhost:8888/api/v1/infer \
 
 #### **Advanced Parameters (New Features)**
 ```bash
-# Fire-only detection with GPU acceleration
+# Smoke-only detection with half precision GPU acceleration
 curl -X POST http://localhost:8888/api/v1/infer \
   -F "file=@image.jpg" \
-  -F "detection_classes=[1]" \
+  -F "detection_classes=[0]" \
   -F "half_precision=true" \
   -F "confidence_threshold=0.13"
 

@@ -2,11 +2,12 @@
 SAI Inference Service Configuration
 """
 from pydantic_settings import BaseSettings
-from pydantic import Field, ConfigDict
+from pydantic import Field, ConfigDict, field_validator
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Union, Tuple
 from dotenv import load_dotenv
 import os
+import json
 
 # Force load .env file before settings initialization
 load_dotenv(override=True)
@@ -29,8 +30,8 @@ class Settings(BaseSettings):
     confidence_threshold: float = Field(default=0.15, alias="SAI_CONFIDENCE")  # Reference: conf=0.15
     iou_threshold: float = Field(default=0.45, alias="SAI_IOU_THRESHOLD")
     
-    # SAINet2.1 Optimized Resolution (1920px - from reference)
-    input_size: int = Field(default=1920, alias="SAI_INPUT_SIZE")  # Reference: imgsz=1920
+    # SAINet2.1 Optimized Resolution (864px - production optimized)
+    input_size: Union[int, Tuple[int, int]] = Field(default=864, alias="SAI_INPUT_SIZE")  # Supports int or (height, width)
     max_detections: int = Field(default=100, alias="SAI_MAX_DETECTIONS")
     
     # Performance
@@ -64,6 +65,49 @@ class Settings(BaseSettings):
         extra="allow",  # Allow extra fields from environment variables
         protected_namespaces=('settings_',)  # Change protected namespace to avoid conflicts
     )
+    
+    @field_validator('input_size', mode='before')
+    @classmethod
+    def parse_input_size(cls, v):
+        """Parse input_size from various string formats in environment variables.
+        
+        Supports:
+        - Integer: 864 → 864
+        - Tuple formats: (480, 640), [480, 640], 480,640 → (480, 640)
+        """
+        if isinstance(v, str):
+            v = v.strip()
+            
+            # Try to parse tuple format: (480, 640)
+            if v.startswith('(') and v.endswith(')'):
+                try:
+                    inner = v[1:-1].strip()
+                    parts = [int(x.strip()) for x in inner.split(',')]
+                    if len(parts) == 2:
+                        return tuple(parts)
+                except (ValueError, AttributeError):
+                    pass
+            
+            # Try to parse list format: [480, 640]
+            elif v.startswith('[') and v.endswith(']'):
+                try:
+                    parsed = json.loads(v)
+                    if isinstance(parsed, list) and len(parsed) == 2:
+                        return tuple(int(x) for x in parsed)
+                except (json.JSONDecodeError, ValueError, TypeError):
+                    pass
+            
+            # Try comma-separated format: 480,640
+            elif ',' in v:
+                try:
+                    parts = [int(x.strip()) for x in v.split(',')]
+                    if len(parts) == 2:
+                        return tuple(parts)
+                except (ValueError, AttributeError):
+                    pass
+        
+        # Return as-is for normal int parsing or other types
+        return v
 
 
 # Create settings instance - will load from .env and environment

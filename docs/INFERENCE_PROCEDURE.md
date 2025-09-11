@@ -6,25 +6,14 @@
 - **Classes**: 2 classes
   - `0`: smoke
   - `1`: fire
-- **Architecture**: YOLOv8s with SACRED resolution optimization
+- **Architecture**: YOLOv8s
 - **Training**: Specialized for fire/smoke detection with Datalitycs dataset
 
 ## Input Specifications
 
 ### 1. Image Input Formats
 
-#### **Base64 Encoded (Primary)**
-```json
-{
-  "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEA..."
-}
-```
-- **Format**: JPEG, PNG, BMP, TIFF, WebP
-- **Size**: Up to 50MB
-- **Color**: RGB (auto-converted if needed)
-- **Resolution**: Any (auto-resized to 896x896)
-
-#### **File Upload**
+#### **File Upload (Primary)**
 ```bash
 curl -X POST http://localhost:8888/api/v1/infer/file \
   -F "file=@image.jpg" \
@@ -37,6 +26,17 @@ curl -X POST http://localhost:8888/api/v1/infer/file \
   "image_url": "https://example.com/fire_image.jpg"
 }
 ```
+
+#### **Base64 Encoded (Compatibility)**
+```json
+{
+  "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEA..."
+}
+```
+- **Format**: JPEG, PNG, BMP, TIFF, WebP
+- **Size**: Up to 50MB
+- **Color**: RGB (auto-converted if needed)
+- **Resolution**: Any (auto-resized to 896x896)
 
 ### 2. Processing Parameters
 
@@ -244,24 +244,6 @@ def determine_alert_level(detections) -> str:
         return "low"       # Smoke detected
     return "none"          # No detections
 ```
-
-## Performance Metrics
-
-### **Processing Times** (896x896 SACRED)
-- **CPU (Intel Xeon)**: ~150-250ms per image
-- **GPU (RTX 3090)**: ~15-30ms per image  
-- **GPU (A100)**: ~10-20ms per image
-
-### **Memory Usage**
-- **Model Size**: 116MB (SAINet2.1)
-- **Runtime Memory**: ~2GB with model loaded
-- **Peak Memory**: ~3GB during batch processing
-
-### **Accuracy Metrics** (from training)
-- **mAP@0.5**: ~0.85 (fire/smoke combined)
-- **Precision**: ~0.82
-- **Recall**: ~0.78
-- **F1-Score**: ~0.80
 
 ## Integration Examples
 
