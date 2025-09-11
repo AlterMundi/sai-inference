@@ -339,7 +339,7 @@ def example_n8n_webhook():
     }
     
     start_time = time.time()
-    response = requests.post(f"{API_BASE}/webhook/sai", json=payload, timeout=60)
+    response = requests.post(f"{API_BASE}/api/v1/infer/base64", json=payload, timeout=60)
     request_time = (time.time() - start_time) * 1000
     
     if response.status_code == 200:

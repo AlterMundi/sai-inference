@@ -38,7 +38,6 @@ class Settings(BaseSettings):
     max_queue_size: int = Field(default=100, env="SAI_MAX_QUEUE")
     
     # n8n Integration
-    n8n_webhook_path: str = Field(default="/webhook/sai", env="SAI_WEBHOOK_PATH")
     n8n_api_key: Optional[str] = Field(default=None, env="SAI_API_KEY")
     allowed_origins: List[str] = Field(
         default=["*"],

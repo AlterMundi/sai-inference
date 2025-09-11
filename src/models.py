@@ -64,12 +64,41 @@ class Detection(BaseModel):
 
 class InferenceRequest(BaseModel):
     """Request model for inference endpoint"""
+    # Image Input
     image: Optional[str] = Field(None, description="Base64 encoded image")
     image_url: Optional[str] = Field(None, description="URL to download image from")
-    confidence_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
-    iou_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
-    max_detections: Optional[int] = Field(None, ge=1, le=1000)
+    
+    # Core Detection Parameters
+    confidence_threshold: Optional[float] = Field(None, ge=0.0, le=1.0, description="Minimum confidence for detections")
+    iou_threshold: Optional[float] = Field(None, ge=0.0, le=1.0, description="IOU threshold for NMS")
+    max_detections: Optional[int] = Field(None, ge=1, le=1000, description="Maximum detections per image")
+    
+    # High-Value YOLO Parameters (Official Ultralytics)
+    detection_classes: Optional[List[int]] = Field(
+        None, 
+        description="Filter to specific class IDs (0=smoke, 1=fire, None=both)",
+        examples=[[0], [1], [0,1], None]
+    )
+    half_precision: bool = Field(
+        False, 
+        description="Enable FP16 inference for 2x speed boost (requires compatible GPU)"
+    )
+    test_time_augmentation: bool = Field(
+        False, 
+        description="Enable TTA for improved accuracy (2-3x slower inference)"
+    )
+    class_agnostic_nms: bool = Field(
+        False, 
+        description="Suppress overlapping detections across fire/smoke classes"
+    )
+    
+    # Annotation Control
     return_image: bool = Field(False, description="Return annotated image")
+    show_labels: bool = Field(True, description="Include class labels in annotations")
+    show_confidence: bool = Field(True, description="Display confidence scores in annotations")
+    line_width: Optional[int] = Field(None, ge=1, le=10, description="Bounding box line thickness")
+    
+    # Processing Options
     webhook_url: Optional[str] = Field(None, description="Webhook URL for async processing")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 

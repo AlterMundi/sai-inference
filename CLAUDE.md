@@ -88,9 +88,7 @@ ruff src/
 - **File Upload**: `POST /api/v1/infer` - Primary inference endpoint (multipart/form-data)
 - **Base64 Inference**: `POST /api/v1/infer/base64` - JSON inference endpoint
 - **Batch Processing**: `POST /api/v1/infer/batch` - Multiple images
-- **n8n Webhook**: `POST /webhook/sai` - n8n integration endpoint
 - **Models**: `GET /api/v1/models`, `POST /api/v1/models/load`, `POST /api/v1/models/switch`
-- **API Docs**: `http://localhost:8888/api/v1/docs` (Swagger UI)
 
 ## n8n Integration
 
@@ -113,10 +111,6 @@ The service acts as a drop-in replacement for Ollama in n8n workflows. **All int
    - Expects: `{"image": "base64_encoded_image", "confidence_threshold": 0.15}`
    - Returns: Standard inference response with detections
 
-3. **n8n Webhook** (`/webhook/sai`): Handles n8n's various data wrapper formats
-   - Automatically unwraps n8n's binary/json structures
-   - Extracts workflow metadata (workflow_id, execution_id)
-   - Returns n8n-friendly response with success flags
 
 ### Typical n8n Workflows:
 

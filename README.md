@@ -63,25 +63,41 @@ python tests/test_service.py
 curl http://localhost:8888/api/v1/health
 ```
 
-### Single Image Inference
+### File Upload (Primary Method)
 ```bash
+# Basic inference
 curl -X POST http://localhost:8888/api/v1/infer \
-  -H "Content-Type: application/json" \
-  -d '{"image": "base64_encoded_image_data"}'
-```
-
-### File Upload
-```bash
-curl -X POST http://localhost:8888/api/v1/infer/file \
   -F "file=@image.jpg"
+
+# With optimized parameters
+curl -X POST http://localhost:8888/api/v1/infer \
+  -F "file=@image.jpg" \
+  -F "confidence_threshold=0.13" \
+  -F "return_image=true"
 ```
 
-### n8n Webhook
+### Base64 Inference (Alternative)
 ```bash
-curl -X POST http://localhost:8888/webhook/sai \
+curl -X POST http://localhost:8888/api/v1/infer/base64 \
   -H "Content-Type: application/json" \
-  -d '{"image": "base64_data", "callback_url": "https://your-n8n/webhook"}'
+  -d '{"image": "base64_encoded_image_data", "confidence_threshold": 0.13}'
 ```
+
+### Advanced Parameters (New Features)
+```bash
+# Fire-only detection with GPU acceleration
+curl -X POST http://localhost:8888/api/v1/infer \
+  -F "file=@image.jpg" \
+  -F "detection_classes=[1]" \
+  -F "half_precision=true"
+
+# Maximum accuracy mode for critical analysis
+curl -X POST http://localhost:8888/api/v1/infer \
+  -F "file=@image.jpg" \
+  -F "test_time_augmentation=true" \
+  -F "class_agnostic_nms=true"
+```
+
 
 ## n8n Integration
 
@@ -101,7 +117,7 @@ curl -X POST http://localhost:8888/webhook/sai \
 
 ### Webhook Node Configuration
 
-1. **Webhook URL**: `http://your-server:8888/webhook/sai`
+1. **API URL**: `http://your-server:8888/api/v1/infer`
 2. **HTTP Method**: POST
 3. **Response Mode**: "On Received"
 
@@ -158,14 +174,21 @@ curl -X POST http://localhost:8888/webhook/sai \
 
 ### Environment Variables
 
+**Core Configuration**:
 - `SAI_HOST`: Service host (default: 0.0.0.0)
 - `SAI_PORT`: Service port (default: 8888)
 - `SAI_DEVICE`: Compute device (cpu/cuda)
 - `SAI_MODEL_DIR`: Model directory path
-- `SAI_DEFAULT_MODEL`: Default model filename
-- `SAI_CONFIDENCE`: Detection confidence threshold
-- `SAI_API_KEY`: Optional API key for authentication
-- `SAI_REDIS_URL`: Redis URL for distributed caching
+- `SAI_DEFAULT_MODEL`: Default model filename (default: last.pt)
+
+**Optimized Detection Parameters** (Production Defaults):
+- `SAI_CONFIDENCE_THRESHOLD`: Detection sensitivity (default: 0.13)
+- `SAI_IOU_THRESHOLD`: Overlap handling (default: 0.4)
+- `SAI_INPUT_SIZE`: Image processing resolution (default: 864)
+
+**Optional**:
+- `SAI_API_KEY`: API authentication key
+- `SAI_LOG_LEVEL`: Logging verbosity (default: INFO)
 
 ### Model Management
 
@@ -189,9 +212,7 @@ curl -X POST http://localhost:8888/api/v1/models/switch?model_name=sai_v2.1.pt
 
 ## API Documentation
 
-Interactive API documentation available at:
-- Swagger UI: http://localhost:8888/api/v1/docs
-- ReDoc: http://localhost:8888/api/v1/redoc
+All endpoints are documented in the codebase with comprehensive examples in the docs/ directory.
 
 ## Alert Levels
 

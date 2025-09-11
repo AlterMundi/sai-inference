@@ -307,7 +307,6 @@ main() {
     echo "  sai-service {start|stop|restart|reload|status|logs|health|test}"
     echo
     log_info "Service will run on: http://localhost:8888"
-    log_info "API documentation: http://localhost:8888/api/v1/docs"
 }
 
 # Run main function

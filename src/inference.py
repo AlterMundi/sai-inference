@@ -336,6 +336,15 @@ class InferenceEngine:
         iou_threshold: Optional[float] = None,
         max_detections: Optional[int] = None,
         return_annotated: bool = False,
+        # High-Value YOLO Parameters
+        detection_classes: Optional[List[int]] = None,
+        half_precision: bool = False,
+        test_time_augmentation: bool = False,
+        class_agnostic_nms: bool = False,
+        # Annotation Control
+        show_labels: bool = True,
+        show_confidence: bool = True,
+        line_width: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> InferenceResponse:
         """Run inference on an image"""
@@ -347,6 +356,17 @@ class InferenceEngine:
         iou = iou_threshold or settings.iou_threshold
         max_det = max_detections or settings.max_detections
         
+        # Validate detection_classes parameter
+        if detection_classes is not None:
+            if not all(0 <= cls <= 1 for cls in detection_classes):
+                raise ValueError("detection_classes must contain only valid class IDs: 0 (smoke) or 1 (fire)")
+            if len(detection_classes) == 0:
+                raise ValueError("detection_classes cannot be empty")
+        
+        # Check GPU availability for half_precision
+        if half_precision and not torch.cuda.is_available():
+            logger.warning("Half precision requested but CUDA not available, falling back to FP32")
+            half_precision = False
         
         try:
             # Handle different input types optimally
@@ -366,21 +386,33 @@ class InferenceEngine:
             else:
                 original_h, original_w = image.shape[:2]  # numpy array
             
-            # Direct to YOLO - let it handle everything
+            # Direct to YOLO with enhanced parameters
             model = self.model_manager.current_model
             if model is None:
                 raise ValueError("No model loaded")
             
-            results = model.predict(
-                image,  # Direct PIL/numpy input - no preprocessing BS
-                conf=confidence,
-                iou=iou,
-                max_det=max_det,
-                imgsz=settings.input_size,
-                device=self.model_manager.device,
-                verbose=False,
-                save=False
-            )
+            # Build YOLO predict parameters with new high-value features
+            predict_params = {
+                "source": image,
+                "conf": confidence,
+                "iou": iou,
+                "max_det": max_det,
+                "imgsz": settings.input_size,
+                "device": self.model_manager.device,
+                "verbose": False,
+                "save": False,
+                # High-Value Parameters
+                "classes": detection_classes,  # Official Ultralytics parameter
+                "half": half_precision,        # Official Ultralytics FP16
+                "augment": test_time_augmentation,  # Official Ultralytics TTA
+                "agnostic_nms": class_agnostic_nms  # Official Ultralytics NMS
+            }
+            
+            # Remove None values to use YOLO defaults
+            predict_params = {k: v for k, v in predict_params.items() if v is not None}
+            
+            logger.debug(f"YOLO predict parameters: {predict_params}")
+            results = model.predict(**predict_params)
             
             # Parse detections
             detections = []
@@ -440,15 +472,15 @@ class InferenceEngine:
                         img_array = image
                         logger.debug(f"Using numpy array directly: {img_array.shape}")
                     
-                    # YOLO plot with optimal parameters (match save=True quality)
+                    # YOLO plot with configurable annotation parameters
                     logger.debug("Calling YOLO plot...")
                     annotated = results[0].plot(
                         img=img_array,
-                        line_width=None,    # Auto-calculate optimal width (default)
-                        font_size=None,     # Auto-calculate optimal font size
-                        labels=True,        # Show class labels
-                        boxes=True,         # Show bounding boxes
-                        conf=True           # Show confidence scores
+                        line_width=line_width,      # User-configurable line width
+                        font_size=None,             # Auto-calculate optimal font size
+                        labels=show_labels,         # User-configurable labels
+                        boxes=True,                 # Always show bounding boxes
+                        conf=show_confidence        # User-configurable confidence scores
                     )
                     logger.debug(f"YOLO plot successful, output shape: {annotated.shape}, dtype: {annotated.dtype}")
                     

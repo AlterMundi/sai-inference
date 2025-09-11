@@ -128,7 +128,7 @@ def test_webhook():
         }
         
         response = requests.post(
-            "http://localhost:8888/webhook/sai",
+            "http://localhost:8888/api/v1/infer/base64",
             json=payload,
             timeout=30
         )

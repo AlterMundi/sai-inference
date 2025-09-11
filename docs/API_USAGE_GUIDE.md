@@ -12,23 +12,54 @@ python run.py                 # Start service on port 8888
 ### 2. Access Points
 - **API Base**: `http://localhost:8888`
 - **Health Check**: `http://localhost:8888/api/v1/health`
-- **API Documentation**: `http://localhost:8888/api/v1/docs`
-- **n8n Webhook**: `http://localhost:8888/webhook/sai`
 
 ## Endpoint Usage
 
-### **Main Inference Endpoint**
+### **Primary File Upload Endpoint** ⭐ **Recommended**
 
 **URL**: `POST /api/v1/infer`
+**Content-Type**: `multipart/form-data`
 
-#### Input Options
+#### **File Upload (Binary)**
+```bash
+curl -X POST http://localhost:8888/api/v1/infer \
+  -F "file=@image.jpg" \
+  -F "confidence_threshold=0.13" \
+  -F "iou_threshold=0.4" \
+  -F "return_image=true"
+```
 
-##### **Option 1: Base64 Encoded Image**
+#### **Advanced Parameters (New Features)**
+```bash
+# Fire-only detection with GPU acceleration
+curl -X POST http://localhost:8888/api/v1/infer \
+  -F "file=@image.jpg" \
+  -F "detection_classes=[1]" \
+  -F "half_precision=true" \
+  -F "confidence_threshold=0.13"
+
+# Maximum accuracy mode (slower)
+curl -X POST http://localhost:8888/api/v1/infer \
+  -F "file=@image.jpg" \
+  -F "test_time_augmentation=true" \
+  -F "class_agnostic_nms=true"
+```
+
+### **JSON Base64 Endpoint** (Alternative)
+
+**URL**: `POST /api/v1/infer/base64`
+**Content-Type**: `application/json`
+
+#### **Base64 Image Data**
 ```json
 {
   "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEA...",
-  "confidence_threshold": 0.15,
-  "iou_threshold": 0.45,
+  "confidence_threshold": 0.13,
+  "iou_threshold": 0.4,
+  "detection_classes": [0, 1],
+  "half_precision": false,
+  "test_time_augmentation": false,
+  "class_agnostic_nms": false,
   "return_image": true,
   "metadata": {
     "camera_id": "cam_01",
@@ -37,21 +68,13 @@ python run.py                 # Start service on port 8888
 }
 ```
 
-##### **Option 2: Image URL**
+#### **Image URL Processing**
 ```json
 {
   "image_url": "https://example.com/fire_scene.jpg",
-  "confidence_threshold": 0.15,
-  "return_image": true
-}
-```
-
-##### **Option 3: Raw Base64 (without data URI)**
-```json
-{
-  "image": "/9j/4AAQSkZJRgABAQEA...",  // Just the base64 data
-  "confidence_threshold": 0.15,
-  "return_image": false
+  "confidence_threshold": 0.13,
+  "detection_classes": [1],
+  "half_precision": true
 }
 ```
 
@@ -104,6 +127,81 @@ python run.py                 # Start service on port 8888
   }
 }
 ```
+
+## Advanced Parameters (High-Value Features)
+
+### **Class Filtering (`detection_classes`)**
+**Type**: `Array[int]` | **Default**: `null` (all classes)
+**Source**: Official Ultralytics YOLO parameter
+
+```json
+{
+  "detection_classes": [0],     // Smoke-only detection
+  "detection_classes": [1],     // Fire-only detection  
+  "detection_classes": [0, 1]   // Both classes (default)
+}
+```
+
+**Benefits**:
+- **Reduced False Positives**: Fire-only mode eliminates smoke misclassifications
+- **Targeted Alerts**: Smoke-only detection for early warning systems
+- **Performance**: Single-class detection reduces computational overhead
+
+### **Half Precision (`half_precision`)**
+**Type**: `boolean` | **Default**: `false`
+**Source**: Official Ultralytics YOLO FP16 optimization
+
+```json
+{
+  "half_precision": true   // Enable FP16 inference
+}
+```
+
+**Benefits**:
+- **2x Speed Boost**: Faster inference on compatible NVIDIA GPUs
+- **50% Memory Reduction**: Lower VRAM usage
+- **Minimal Accuracy Impact**: <1% mAP difference
+- **Requirements**: NVIDIA GPU with Tensor Core support (RTX series)
+
+### **Test-Time Augmentation (`test_time_augmentation`)**
+**Type**: `boolean` | **Default**: `false`
+**Source**: Official Ultralytics YOLO TTA feature
+
+```json
+{
+  "test_time_augmentation": true   // Enable TTA for maximum accuracy
+}
+```
+
+**Benefits**:
+- **Enhanced Accuracy**: 5-10% improvement in challenging conditions
+- **Better Edge Cases**: Improved detection of faint smoke, distant fire
+- **Critical Applications**: Justified for life-safety systems
+- **Trade-off**: 2-3x slower inference time
+
+### **Class-Agnostic NMS (`class_agnostic_nms`)**
+**Type**: `boolean` | **Default**: `false`
+**Source**: Official Ultralytics YOLO NMS configuration
+
+```json
+{
+  "class_agnostic_nms": true   // Suppress overlapping detections across classes
+}
+```
+
+**Benefits**:
+- **Cleaner Output**: Single detection per spatial region
+- **Fire/Smoke Overlap**: Better handling of coexistent fire and smoke
+- **Simplified Logic**: Easier alert processing for overlapping phenomena
+
+### **Performance Parameter Matrix**
+
+| Parameter | Speed Impact | Accuracy Impact | Use Case |
+|-----------|-------------|-----------------|----------|
+| `detection_classes=[1]` | +20% faster | Targeted | Fire-only alerts |
+| `half_precision=true` | +100% faster | -1% | Real-time processing |
+| `test_time_augmentation=true` | -200% slower | +5-10% | Critical analysis |
+| `class_agnostic_nms=true` | Neutral | Cleaner output | Overlapping scenarios |
 
 ## Annotated Image Feature
 
@@ -264,24 +362,6 @@ return {
 };
 ```
 
-### **Example 4: n8n Webhook Endpoint**
-
-```bash
-# Send to n8n webhook (with callback)
-curl -X POST http://localhost:8888/webhook/sai \
-  -H "Content-Type: application/json" \
-  -d '{
-    "image": "'$(base64 -w 0 fire_scene.jpg)'",
-    "confidence_threshold": 0.15,
-    "return_image": true,
-    "callback_url": "https://your-n8n.com/webhook/fire-alert",
-    "workflow_id": "fire_detection_v2",
-    "metadata": {
-      "camera": "warehouse_cam_01",
-      "priority": "high"
-    }
-  }'
-```
 
 **Response**:
 ```json

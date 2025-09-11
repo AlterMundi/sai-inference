@@ -152,8 +152,6 @@ echo
 echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
 echo -e "${YELLOW}SERVICE ENDPOINTS:${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
-echo -e "  ${BLUE}API Documentation:${NC} http://localhost:8888/api/v1/docs"
 echo -e "  ${BLUE}Health Check:${NC}      http://localhost:8888/api/v1/health"
 echo -e "  ${BLUE}Inference API:${NC}     http://localhost:8888/api/v1/infer"
-echo -e "  ${BLUE}n8n Integration:${NC}   http://localhost:8888/webhook/sai"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"

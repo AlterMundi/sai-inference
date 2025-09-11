@@ -12,7 +12,7 @@ import aiofiles
 import httpx
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import base64
 import io
 import asyncio
@@ -255,9 +255,21 @@ async def switch_model(model_name: str):
 @app.post(f"{settings.api_prefix}/infer", response_model=InferenceResponse)
 async def infer(
     file: UploadFile = File(...),
+    # Core Detection Parameters
     confidence_threshold: Optional[float] = Form(None),
     iou_threshold: Optional[float] = Form(None),
-    return_image: Optional[str] = Form("false"),
+    max_detections: Optional[int] = Form(None),
+    # High-Value YOLO Parameters
+    detection_classes: Optional[str] = Form(None, description="JSON array: [0] for smoke, [1] for fire, [0,1] for both"),
+    half_precision: Optional[str] = Form("false", description="true/false"),
+    test_time_augmentation: Optional[str] = Form("false", description="true/false"),
+    class_agnostic_nms: Optional[str] = Form("false", description="true/false"),
+    # Annotation Control
+    return_image: Optional[str] = Form("false", description="true/false"),
+    show_labels: Optional[str] = Form("true", description="true/false"),
+    show_confidence: Optional[str] = Form("true", description="true/false"),
+    line_width: Optional[int] = Form(None),
+    # Processing Options
     webhook_url: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = None
 ):
@@ -281,19 +293,51 @@ async def infer(
         )
     
     try:
-        # Convert form data string to boolean
-        return_annotated_image = bool(return_image and return_image.lower() in ("true", "1", "yes", "on"))
+        # Parse form data parameters
+        def parse_bool(value: Optional[str], default: bool = False) -> bool:
+            if value is None:
+                return default
+            return value.lower() in ("true", "1", "yes", "on")
         
-        # Pass binary data directly to inference engine (optimal path)
-        # No base64 conversion needed - direct bytes → PIL Image → YOLO
+        def parse_json_array(value: Optional[str]) -> Optional[List[int]]:
+            if value is None:
+                return None
+            try:
+                import json
+                parsed = json.loads(value)
+                if isinstance(parsed, list) and all(isinstance(x, int) for x in parsed):
+                    return parsed
+                else:
+                    raise ValueError("Must be array of integers")
+            except (json.JSONDecodeError, ValueError) as e:
+                raise HTTPException(status_code=400, detail=f"Invalid detection_classes format: {e}")
         
-        # Run inference
+        # Convert form data to typed parameters
+        return_annotated_image = parse_bool(return_image)
+        parsed_detection_classes = parse_json_array(detection_classes)
+        parsed_half_precision = parse_bool(half_precision)
+        parsed_tta = parse_bool(test_time_augmentation)
+        parsed_agnostic_nms = parse_bool(class_agnostic_nms)
+        parsed_show_labels = parse_bool(show_labels, True)
+        parsed_show_confidence = parse_bool(show_confidence, True)
+        
+        # Run inference with enhanced parameters
         response = await inference_engine.infer(
             image_data=contents,  # Raw bytes directly
             request_id=request_id,
             confidence_threshold=confidence_threshold,
             iou_threshold=iou_threshold,
+            max_detections=max_detections,
             return_annotated=return_annotated_image,
+            # High-Value YOLO Parameters  
+            detection_classes=parsed_detection_classes,
+            half_precision=parsed_half_precision,
+            test_time_augmentation=parsed_tta,
+            class_agnostic_nms=parsed_agnostic_nms,
+            # Annotation Control
+            show_labels=parsed_show_labels,
+            show_confidence=parsed_show_confidence,
+            line_width=line_width,
             metadata={
                 "filename": file.filename,
                 "content_type": file.content_type,
@@ -334,7 +378,7 @@ async def infer_base64(request: InferenceRequest, background_tasks: BackgroundTa
         else:
             raise HTTPException(status_code=400, detail="No image provided")
         
-        # Run inference
+        # Run inference with enhanced parameters
         response = await inference_engine.infer(
             image_data=image_data,
             request_id=request_id,
@@ -342,9 +386,24 @@ async def infer_base64(request: InferenceRequest, background_tasks: BackgroundTa
             iou_threshold=request.iou_threshold,
             max_detections=request.max_detections,
             return_annotated=request.return_image,
+            # High-Value YOLO Parameters
+            detection_classes=request.detection_classes,
+            half_precision=request.half_precision,
+            test_time_augmentation=request.test_time_augmentation,
+            class_agnostic_nms=request.class_agnostic_nms,
+            # Annotation Control
+            show_labels=request.show_labels,
+            show_confidence=request.show_confidence,
+            line_width=request.line_width,
             metadata={
                 **request.metadata,
-                "source": "base64_json"
+                "source": "base64_json",
+                "enhanced_features": {
+                    "detection_classes": request.detection_classes,
+                    "half_precision": request.half_precision,
+                    "test_time_augmentation": request.test_time_augmentation,
+                    "class_agnostic_nms": request.class_agnostic_nms
+                }
             }
         )
         
