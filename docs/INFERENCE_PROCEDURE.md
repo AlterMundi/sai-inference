@@ -36,16 +36,16 @@ curl -X POST http://localhost:8888/api/v1/infer/file \
 - **Format**: JPEG, PNG, BMP, TIFF, WebP
 - **Size**: Up to 50MB
 - **Color**: RGB (auto-converted if needed)
-- **Resolution**: Any (auto-resized to 896x896)
+- **Resolution**: Any (auto-resized to 864x864)
 
 ### 2. Processing Parameters
 
 ```json
 {
-  "confidence_threshold": 0.45,    // Min confidence (0.0-1.0), default: 0.45
-  "iou_threshold": 0.45,           // NMS IoU threshold (0.0-1.0), default: 0.45
+  "confidence_threshold": 0.13,    // Min confidence (0.0-1.0), default: 0.45
+  "iou_threshold": 0.4,           // NMS IoU threshold (0.0-1.0), default: 0.45
   "max_detections": 100,           // Max detections per image, default: 100
-  "return_image": false,           // Return annotated image, default: false
+  "return_image": true,           // Return annotated image, default: false
   "metadata": {                    // Optional metadata
     "source": "camera_01",
     "timestamp": "2024-09-06T10:30:00Z"
@@ -55,93 +55,83 @@ curl -X POST http://localhost:8888/api/v1/infer/file \
 
 ## Processing Pipeline
 
-### **Step 1: Image Preprocessing**
+### **YOLO Inference with Automatic Preprocessing**
+
+The SAI Inference Service uses YOLO's built-in preprocessing pipeline for optimal performance and accuracy. No manual preprocessing is performed.
 
 ```python
-def preprocess_image(image: np.ndarray) -> tuple:
+def run_inference(image: PIL.Image | np.ndarray) -> Results:
     """
-    Convert input image to SACRED resolution (896x896)
+    Run SAINet2.1 inference with YOLO's automatic preprocessing
     """
-    h, w = image.shape[:2]
-    target_size = 896  # SACRED resolution
+    # YOLO automatically handles all preprocessing internally:
+    # 1. Image validation and conversion to RGB
+    # 2. Letterboxing (resize + pad) to target resolution  
+    # 3. Normalization (0-255 → 0.0-1.0)
+    # 4. Tensor conversion (HWC → CHW, numpy → torch)
     
-    # 1. Calculate scaling factor (maintain aspect ratio)
-    scale = min(target_size / w, target_size / h)
-    new_w, new_h = int(w * scale), int(h * scale)
-    
-    # 2. Resize image
-    resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-    
-    # 3. Pad to square (896x896) with gray borders
-    pad_w = target_size - new_w
-    pad_h = target_size - new_h
-    top, bottom = pad_h // 2, pad_h - pad_h // 2
-    left, right = pad_w // 2, pad_w - pad_w // 2
-    
-    padded = cv2.copyMakeBorder(
-        resized, top, bottom, left, right,
-        cv2.BORDER_CONSTANT, value=(114, 114, 114)  # Gray padding
-    )
-    
-    return padded, scale, (left, top)
-```
-
-### **Step 2: YOLO Inference**
-
-```python
-def run_inference(processed_image: np.ndarray) -> Results:
-    """
-    Run SAINet2.1 inference on preprocessed image
-    """
     results = model.predict(
-        processed_image,
-        conf=confidence_threshold,     # Confidence filtering
-        iou=iou_threshold,            # NMS IoU threshold  
-        max_det=max_detections,       # Maximum detections
-        device=device,                # CPU/CUDA
-        verbose=False,                # Silent mode
-        imgsz=896                     # SACRED resolution
+        source=image,                 # PIL Image or numpy array input
+        conf=confidence_threshold,    # Confidence filtering (0.13)
+        iou=iou_threshold,           # NMS IoU threshold (0.4)
+        max_det=max_detections,      # Maximum detections (100)
+        imgsz=864,                   # Target resolution (864px optimized)
+        device=device,               # CPU/CUDA
+        verbose=False,               # Silent mode
+        save=False                   # No file saving
     )
     return results[0]  # Single image result
 ```
 
-### **Step 3: Post-processing**
+### **YOLO's Internal Letterboxing Process**
+
+YOLO uses the **LetterBox** algorithm for preprocessing, which:
+
+1. **Maintains aspect ratio** by calculating optimal scale factor
+2. **Resizes image** using linear interpolation  
+3. **Adds gray padding** (RGB: 114,114,114) to reach target size
+4. **Centers the image** within the padded frame
+5. **Returns coordinates** in original image space automatically
 
 ```python
-def postprocess_detections(results, scale, padding, original_size):
+# Equivalent to YOLO's internal LetterBox (for reference only)
+letterbox = LetterBox(
+    new_shape=(864, 864),        # Target size from settings.input_size
+    auto=False,                  # Fixed size (not minimum rectangle)
+    center=True,                 # Center the resized image
+    stride=32,                   # Model stride alignment
+    padding_value=114,           # Gray padding value
+    interpolation=cv2.INTER_LINEAR  # Linear interpolation
+)
+```
+
+### **Detection Post-processing**
+
+```python
+def process_detections(results) -> List[Detection]:
     """
-    Convert YOLO outputs to final detection format
+    Process YOLO results into structured detections
     """
     detections = []
     
     if results.boxes is not None:
-        for i, box in enumerate(results.boxes):
-            # Extract raw detection data
-            xyxy = box.xyxy[0].cpu().numpy()  # Bounding box coordinates
-            conf = float(box.conf[0].cpu().numpy())  # Confidence score
-            cls = int(box.cls[0].cpu().numpy())  # Class ID (0=smoke, 1=fire)
+        for i in range(len(results.boxes)):
+            # Extract detection data (coordinates already in original image space)
+            box = results.boxes.xyxy[i].cpu().numpy()  # [x1, y1, x2, y2]
+            conf = float(results.boxes.conf[i].cpu().numpy())
+            cls = int(results.boxes.cls[i].cpu().numpy())
             
-            # Convert coordinates back to original image space
-            x1 = (xyxy[0] - padding[0]) / scale
-            y1 = (xyxy[1] - padding[1]) / scale  
-            x2 = (xyxy[2] - padding[0]) / scale
-            y2 = (xyxy[3] - padding[1]) / scale
-            
-            # Clip to original image bounds
-            x1 = max(0, min(x1, original_size[0]))
-            y1 = max(0, min(y1, original_size[1]))
-            x2 = max(0, min(x2, original_size[0]))
-            y2 = max(0, min(y2, original_size[1]))
-            
+            # Create structured detection
             detection = {
                 "class_name": "smoke" if cls == 0 else "fire",
                 "class_id": cls,
                 "confidence": conf,
                 "bbox": {
-                    "x1": x1, "y1": y1, "x2": x2, "y2": y2,
-                    "width": x2 - x1,
-                    "height": y2 - y1,
-                    "center": [(x1 + x2) / 2, (y1 + y2) / 2]
+                    "x1": float(box[0]), "y1": float(box[1]),
+                    "x2": float(box[2]), "y2": float(box[3]),
+                    "width": float(box[2] - box[0]),
+                    "height": float(box[3] - box[1]),
+                    "center": [float((box[0] + box[2]) / 2), float((box[1] + box[3]) / 2)]
                 }
             }
             detections.append(detection)
@@ -205,22 +195,6 @@ def postprocess_detections(results, scale, padding, original_size):
   "model_version": "sai_v2.1.pt",
   "metadata": {
     "source": "camera_01"
-  }
-}
-```
-
-### **n8n Webhook Response**
-
-```json
-{
-  "success": true,
-  "request_id": "uuid-string", 
-  "detections": 2,
-  "has_fire": true,
-  "has_smoke": true,
-  "alert_level": "critical",  // critical/high/medium/low/none
-  "data": {
-    // Full InferenceResponse object above
   }
 }
 ```
@@ -318,4 +292,4 @@ curl -X POST http://localhost:8888/api/v1/infer \
 - **500**: Internal server error
 - **503**: Service unavailable (model not loaded)
 
-The SAINet2.1 model provides state-of-the-art fire and smoke detection with optimized SACRED resolution processing for real-time monitoring applications.
+The SAINet2.1 model provides state-of-the-art fire and smoke detection with 864px optimized resolution processing for real-time monitoring applications.
