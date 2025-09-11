@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-SAI Inference Service is a high-performance FastAPI-based REST API for fire and smoke detection using YOLOv8 models. It's designed as a drop-in replacement for Ollama in n8n workflows, providing real-time inference with WebSocket support, model hot-swapping, and response caching.
+SAI Inference Service is a high-performance FastAPI-based REST API for fire and smoke detection using YOLOv8 models. It's designed as a drop-in replacement for Ollama in n8n workflows, providing real-time inference with WebSocket support, and model hot-swapping.
 
 ## Key Architecture
 
@@ -73,7 +73,7 @@ python tests/test_service.py
 
 # Test specific endpoints
 curl http://localhost:8888/api/v1/health
-curl -X POST http://localhost:8888/api/v1/infer/file -F "file=@image.jpg"
+curl -X POST http://localhost:8888/api/v1/infer -F "file=@image.jpg"
 
 # Format code
 black src/
@@ -85,12 +85,11 @@ ruff src/
 ## API Endpoints
 
 - **Health**: `GET /api/v1/health` - Service health and metrics
-- **Inference**: `POST /api/v1/infer` - Single image inference (base64)
-- **File Upload**: `POST /api/v1/infer/file` - Direct file upload
-- **Batch**: `POST /api/v1/infer/batch` - Multiple images
+- **File Upload**: `POST /api/v1/infer` - Primary inference endpoint (multipart/form-data)
+- **Base64 Inference**: `POST /api/v1/infer/base64` - JSON inference endpoint
+- **Batch Processing**: `POST /api/v1/infer/batch` - Multiple images
 - **n8n Webhook**: `POST /webhook/sai` - n8n integration endpoint
-- **WebSocket**: `WS /api/v1/ws` - Real-time inference
-- **Models**: `GET /api/v1/models`, `POST /api/v1/models/load`
+- **Models**: `GET /api/v1/models`, `POST /api/v1/models/load`, `POST /api/v1/models/switch`
 - **API Docs**: `http://localhost:8888/api/v1/docs` (Swagger UI)
 
 ## n8n Integration
@@ -104,23 +103,42 @@ The service acts as a drop-in replacement for Ollama in n8n workflows. **All int
 - The service provides REST endpoints specifically designed for HTTP Request node usage
 
 ### Integration Endpoints:
-1. **Standard API** (`/api/v1/infer`): Clean JSON endpoint for HTTP Request node
-   - Expects: `{"image": "base64", "confidence_threshold": 0.45}`
+1. **File Upload API** (`/api/v1/infer`): Primary endpoint for direct file uploads
+   - Method: POST with multipart/form-data
+   - File parameter: `file` (binary image data)
+   - Optional parameters: `confidence_threshold`, `iou_threshold`, `return_image`
    - Returns: Standard inference response with detections
 
-2. **n8n Adapter** (`/webhook/sai`): Handles n8n's various data wrapper formats
+2. **Base64 API** (`/api/v1/infer/base64`): JSON endpoint for base64 image data
+   - Expects: `{"image": "base64_encoded_image", "confidence_threshold": 0.15}`
+   - Returns: Standard inference response with detections
+
+3. **n8n Webhook** (`/webhook/sai`): Handles n8n's various data wrapper formats
    - Automatically unwraps n8n's binary/json structures
    - Extracts workflow metadata (workflow_id, execution_id)
    - Returns n8n-friendly response with success flags
 
-### Typical n8n Workflow:
+### Typical n8n Workflows:
+
+#### Option 1: File Upload (Recommended)
 1. **Image Source** (Webhook, File, Camera, etc.)
 2. **HTTP Request Node** → Calls SAI Inference Service
    - Method: POST
    - URL: `http://localhost:8888/api/v1/infer`
-   - Body: Image data as base64
+   - Body Type: Form-Data Binary
+   - File parameter: `file` with binary image data
 3. **IF Node** → Checks `has_fire` or `has_smoke` flags
 4. **Alert/Action Nodes** → Based on detection results
+
+#### Option 2: Base64 JSON (Alternative)
+1. **Image Source** (Webhook, File, Camera, etc.)
+2. **Convert to Base64** (if needed)
+3. **HTTP Request Node** → Calls SAI Inference Service
+   - Method: POST
+   - URL: `http://localhost:8888/api/v1/infer/base64`
+   - Body: JSON with `{"image": "base64_data", "confidence_threshold": 0.15}`
+4. **IF Node** → Checks `has_fire` or `has_smoke` flags
+5. **Alert/Action Nodes** → Based on detection results
 
 ### Response Format:
 - Structured JSON with `has_fire`, `has_smoke` boolean flags
