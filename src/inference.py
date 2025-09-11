@@ -355,6 +355,7 @@ class InferenceEngine:
         confidence = confidence_threshold or settings.confidence_threshold
         iou = iou_threshold or settings.iou_threshold
         max_det = max_detections or settings.max_detections
+        detection_classes = detection_classes or settings.default_detection_classes
         
         # Validate detection_classes parameter
         if detection_classes is not None:

@@ -11,16 +11,18 @@ SAI Inference Service is a high-performance FastAPI-based REST API for fire and 
 ### Core Components
 
 1. **FastAPI Application** (`src/main.py`): Main REST API with endpoints for inference, model management, and n8n integration
-2. **Inference Engine** (`src/inference.py`): YOLO model management and inference execution with caching
-3. **Configuration** (`src/config.py`): Pydantic settings management with environment variable support
-4. **Models** (`src/models.py`): Pydantic data models for API requests/responses
+2. **Inference Engine** (`src/inference.py`): YOLO model management and inference execution
+3. **Mosaic Inference** (`src/inference_mosaic.py`): Processes large images by splitting into overlapping 640x640 crops
+4. **Configuration** (`src/config.py`): Pydantic settings management with environment variable support
+5. **Models** (`src/models.py`): Pydantic data models for API requests/responses
+6. **Daily Test Service** (`src/daily_test.py`): Automated testing system for end-to-end validation
 
-### SAINet2.1 Reference Parameters
-The service is optimized for SAINet2.1 model with these critical parameters:
-- **Input Resolution**: 1920px (reference: `imgsz=1920`)
-- **Confidence Threshold**: 0.15 (reference: `conf=0.15`)
-- **IOU Threshold**: 0.7 (reference: `iou=0.7`)
-- **Model Path**: `models/last.pt`
+### Model Specifications
+- **Model Format**: YOLOv8s architecture (116MB `last.pt` file)
+- **Detection Classes**: 2 classes - `0`: smoke, `1`: fire
+- **Input Resolution**: 864px optimized (configurable via `SAI_INPUT_SIZE`)
+- **Confidence Threshold**: 0.13 production default (was 0.15 in reference)
+- **IOU Threshold**: 0.4 production default (was 0.7 in reference)
 
 ### SystemD Integration
 The service includes proper systemd integration:
@@ -75,6 +77,15 @@ python tests/test_service.py
 curl http://localhost:8888/api/v1/health
 curl -X POST http://localhost:8888/api/v1/infer -F "file=@image.jpg"
 
+# Batch process images from directory
+python scripts/process_images.py /path/to/images/
+
+# Test n8n integration
+./scripts/test_n8n_integration.sh
+
+# Run daily test service
+python src/daily_test.py --config config/daily-test.env
+
 # Format code
 black src/
 
@@ -84,11 +95,20 @@ ruff src/
 
 ## API Endpoints
 
-- **Health**: `GET /api/v1/health` - Service health and metrics
+### Core Inference
 - **File Upload**: `POST /api/v1/infer` - Primary inference endpoint (multipart/form-data)
 - **Base64 Inference**: `POST /api/v1/infer/base64` - JSON inference endpoint
 - **Batch Processing**: `POST /api/v1/infer/batch` - Multiple images
-- **Models**: `GET /api/v1/models`, `POST /api/v1/models/load`, `POST /api/v1/models/switch`
+- **Mosaic Inference**: `POST /api/v1/infer/mosaic` - Large image processing with 640x640 crops
+
+### Model Management
+- **List Models**: `GET /api/v1/models` - Get available and loaded models
+- **Load Model**: `POST /api/v1/models/load` - Load a new model
+- **Switch Model**: `POST /api/v1/models/switch` - Switch active model
+
+### System
+- **Health Check**: `GET /api/v1/health` - Service health and metrics
+- **Metrics**: `GET /metrics` - Prometheus metrics (port 9090)
 
 ## n8n Integration
 
@@ -142,13 +162,35 @@ The service acts as a drop-in replacement for Ollama in n8n workflows. **All int
 
 ## Environment Configuration
 
-Key environment variables (`.env` file):
-- `SAI_DEVICE`: cpu/cuda (GPU support)
-- `SAI_MODEL_DIR`: Model directory path
-- `SAI_DEFAULT_MODEL`: Default model filename
-- `SAI_CONFIDENCE`: Detection confidence (0.15 for SAINet2.1)
-- `SAI_INPUT_SIZE`: Input resolution (1920 for SAINet2.1)
-- `SAI_API_KEY`: Optional API key for authentication
+### Core Settings (`.env` file)
+```bash
+# Service Configuration
+SAI_HOST=0.0.0.0           # Bind address
+SAI_PORT=8888              # Service port
+SAI_DEVICE=cpu             # cpu/cuda/cuda:0 for GPU
+SAI_LOG_LEVEL=INFO         # DEBUG/INFO/WARNING/ERROR
+
+# Model Configuration
+SAI_MODEL_DIR=models       # Model directory path
+SAI_DEFAULT_MODEL=last.pt  # Default model filename
+SAI_CONFIDENCE=0.13        # Detection confidence threshold
+SAI_IOU_THRESHOLD=0.4      # NMS IoU threshold
+SAI_INPUT_SIZE=864         # Input resolution (int or "height,width")
+SAI_MAX_DETECTIONS=100     # Maximum detections per image
+
+# Optional Features
+SAI_API_KEY=               # API authentication key (optional)
+SAI_BATCH_SIZE=1           # Batch processing size
+SAI_MAX_UPLOAD=52428800    # Max upload size (50MB)
+```
+
+### Daily Test Configuration (`config/daily-test.env`)
+```bash
+N8N_WEBHOOK_URL=           # n8n webhook endpoint
+N8N_API_KEY=               # n8n authentication
+IMAGE_DIR=/path/to/test    # Test images directory
+ENABLED_TESTS=both,fire,smoke  # Test categories
+```
 
 ## Model Management
 
@@ -160,11 +202,27 @@ Models are stored in the `models/` directory. The service supports:
 
 ## Development Tips
 
-1. **Model Location**: Place your SAI model as `models/last.pt`
-2. **Performance**: Service handles ~50-100ms inference on CPU (fresh inference each time for critical accuracy)
-3. **Batch Processing**: Supports up to 10 images in parallel
-4. **Memory**: Requires ~2GB with model loaded
-5. **Alert Levels**: Automatically determines severity based on detection counts and confidence
+### Performance Characteristics
+- **Inference Speed**: ~50-100ms per image on CPU
+- **Batch Processing**: Up to 10 images in parallel
+- **Memory Usage**: ~2GB with model loaded
+- **Mosaic Processing**: 640x640 crops with 64px overlap for large images
+- **YOLO Preprocessing**: Automatic letterboxing, normalization, tensor conversion
+
+### Alert Level Logic
+The service automatically determines severity:
+- **Critical**: Multiple fires or high-confidence fire (>0.7)
+- **High**: Fire detected
+- **Medium**: Multiple smoke detections
+- **Low**: Smoke detected
+- **None**: No detections
+
+### Common Issues & Solutions
+
+1. **Model not loading**: Ensure `models/last.pt` exists and is a valid YOLOv8 model
+2. **High memory usage**: Reduce `SAI_BATCH_SIZE` or use smaller input resolution
+3. **Slow inference**: Enable GPU with `SAI_DEVICE=cuda` if available
+4. **SystemD watchdog timeout**: Increase `WatchdogSec` in service file or disable watchdog
 
 ## Testing Workflow
 
@@ -178,6 +236,31 @@ python tests/test_service.py
 # 3. Check logs
 tail -f logs/sai-inference.log
 
-# 4. Monitor metrics
-curl http://localhost:9090/metrics
+# 4. Monitor systemd service
+sudo journalctl -u sai-inference -f
+
+# 5. Test with sample image
+curl -X POST http://localhost:8888/api/v1/infer \
+  -F "file=@tests/images/fire/sample.jpg" \
+  -F "confidence_threshold=0.13"
 ```
+
+## Deployment Notes
+
+### Production Installation
+```bash
+# Automated installation (creates service user, systemd service, etc.)
+sudo ./deployment/install.sh
+
+# Daily test service installation
+sudo ./deployment/install-daily-test.sh
+
+# Uninstall everything
+sudo ./deployment/uninstall.sh
+```
+
+### Directory Structure
+- **Production Install**: `/opt/sai-inference/`
+- **Configuration**: `/etc/sai-inference/`
+- **Logs**: `/var/log/sai-inference/`
+- **Service User**: `service` (non-root)

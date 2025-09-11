@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     input_size: Union[int, Tuple[int, int]] = Field(default=864, alias="SAI_INPUT_SIZE")  # Supports int or (height, width)
     max_detections: int = Field(default=100, alias="SAI_MAX_DETECTIONS")
     
+    # Detection Classes Filter - Default to both smoke and fire
+    default_detection_classes: Optional[List[int]] = Field(
+        default=None, 
+        alias="SAI_DETECTION_CLASSES",
+        description="Filter to specific class IDs (0=smoke, 1=fire). None=both. Example: [0] for smoke-only"
+    )
+    
     # Performance
     batch_size: int = Field(default=1, env="SAI_BATCH_SIZE")
     max_queue_size: int = Field(default=100, env="SAI_MAX_QUEUE")
@@ -66,6 +73,40 @@ class Settings(BaseSettings):
         protected_namespaces=('settings_',)  # Change protected namespace to avoid conflicts
     )
     
+    @field_validator('default_detection_classes', mode='before')
+    @classmethod
+    def parse_detection_classes(cls, v):
+        """Parse detection_classes from environment variable string to list of integers.
+        
+        Supports:
+        - None or empty: None (detect both classes)
+        - Single class: "0" → [0] (smoke-only)
+        - Multiple classes: "0,1" → [0, 1] (both)
+        - JSON format: "[0]" → [0]
+        """
+        if v is None or v == "" or v == "null":
+            return None
+        
+        if isinstance(v, str):
+            v = v.strip()
+            
+            # Try JSON format first: "[0]" or "[0,1]"
+            if v.startswith('[') and v.endswith(']'):
+                try:
+                    parsed = json.loads(v)
+                    if isinstance(parsed, list):
+                        return [int(x) for x in parsed]
+                except (json.JSONDecodeError, ValueError, TypeError):
+                    pass
+            
+            # Try comma-separated format: "0" or "0,1"
+            try:
+                return [int(x.strip()) for x in v.split(',') if x.strip()]
+            except (ValueError, AttributeError):
+                pass
+        
+        return v  # Return as-is if already a list or other type
+
     @field_validator('input_size', mode='before')
     @classmethod
     def parse_input_size(cls, v):
