@@ -6,7 +6,6 @@ High-performance inference service for SAI fire/smoke detection, designed as a d
 
 - **FastAPI REST API** with automatic documentation
 - **n8n Integration** via dedicated webhook endpoint
-- **WebSocket support** for real-time inference
 - **Model hot-swapping** without service restart
 - **Response caching** for improved performance
 - **Batch processing** for multiple images

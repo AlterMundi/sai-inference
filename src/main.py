@@ -539,51 +539,6 @@ async def infer_batch(request: BatchInferenceRequest):
 
 
 
-# WebSocket endpoint for real-time inference
-@app.websocket(f"{settings.api_prefix}/ws")
-async def websocket_endpoint(websocket):
-    """WebSocket endpoint for real-time inference"""
-    await websocket.accept()
-    
-    try:
-        while True:
-            # Receive image data
-            data = await websocket.receive_json()
-            
-            if data.get("type") == "ping":
-                await websocket.send_json({"type": "pong"})
-                continue
-            
-            # Process inference request
-            request_id = str(uuid.uuid4())
-            
-            try:
-                response = await inference_engine.infer(
-                    image_data=data.get("image"),
-                    request_id=request_id,
-                    confidence_threshold=data.get("confidence_threshold"),
-                    iou_threshold=data.get("iou_threshold"),
-                    return_annotated=data.get("return_image", False)
-                )
-                
-                await websocket.send_json({
-                    "type": "inference_result",
-                    "request_id": request_id,
-                    "data": response.model_dump(mode="json")
-                })
-                
-            except Exception as e:
-                await websocket.send_json({
-                    "type": "error",
-                    "request_id": request_id,
-                    "error": str(e)
-                })
-                
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-    finally:
-        await websocket.close()
-
 
 def run_server():
     """Run the FastAPI server"""
