@@ -514,7 +514,35 @@ class InferenceEngine:
                     logger.error(traceback.format_exc())
             
             processing_time = (time.time() - start_time) * 1000
-            
+
+            # Determine detection mode and active classes
+            from .config import settings as config_settings
+            actual_detection_classes = detection_classes or config_settings.default_detection_classes
+            if actual_detection_classes == [0]:
+                detection_mode = "smoke-only"
+                active_classes = ["smoke"]
+            elif actual_detection_classes == [1]:
+                detection_mode = "fire-only"
+                active_classes = ["fire"]
+            elif actual_detection_classes == [0, 1] or actual_detection_classes is None:
+                detection_mode = "both"
+                active_classes = ["smoke", "fire"]
+            else:
+                detection_mode = "custom"
+                active_classes = ["smoke" if 0 in actual_detection_classes else None, "fire" if 1 in actual_detection_classes else None]
+                active_classes = [c for c in active_classes if c is not None]
+
+            # Calculate initial alert level based on detections
+            alert_level = "none"
+            if has_fire:
+                alert_level = "high"  # Fire detected = immediate high alert
+            elif has_smoke:
+                max_smoke_confidence = max([d.confidence for d in detections if d.class_name == DetectionClass.SMOKE], default=0.0)
+                if max_smoke_confidence >= 0.7:
+                    alert_level = "high"
+                elif max_smoke_confidence >= 0.3:
+                    alert_level = "low"
+
             response = InferenceResponse(
                 request_id=request_id,
                 timestamp=datetime.utcnow(),
@@ -525,6 +553,9 @@ class InferenceEngine:
                 has_fire=has_fire,
                 has_smoke=has_smoke,
                 confidence_scores=confidence_scores,
+                alert_level=alert_level,
+                detection_mode=detection_mode,
+                active_classes=active_classes,
                 annotated_image=annotated_image_b64,
                 version=self.model_manager.current_model_name or "unknown",
                 metadata=metadata or {}

@@ -18,11 +18,12 @@ SAI Inference Service is a high-performance FastAPI-based REST API for fire and 
 6. **Daily Test Service** (`src/daily_test.py`): Automated testing system for end-to-end validation
 
 ### Model Specifications
-- **Model Format**: YOLOv8s architecture (116MB `last.pt` file)
+- **Model Format**: YOLOv8s architecture (39MB `last.pt` file)
 - **Detection Classes**: 2 classes - `0`: smoke, `1`: fire
+- **Default Configuration**: Smoke-only detection (`SAI_DETECTION_CLASSES=[0]`) for wildfire early warning
 - **Input Resolution**: 864px optimized (configurable via `SAI_INPUT_SIZE`)
-- **Confidence Threshold**: 0.13 production default (was 0.15 in reference)
-- **IOU Threshold**: 0.4 production default (was 0.7 in reference)
+- **Production Thresholds**: confidence=0.13, iou=0.4 (optimized for wildfire detection)
+- **Threshold Sources**: Environment defaults, overridable per API call
 
 ### SystemD Integration
 The service includes proper systemd integration:
@@ -108,7 +109,7 @@ ruff src/
 
 ### System
 - **Health Check**: `GET /api/v1/health` - Service health and metrics
-- **Metrics**: `GET /metrics` - Prometheus metrics (port 9090)
+- **Metrics**: Prometheus client installed (endpoint not implemented yet)
 
 ## n8n Integration
 
@@ -178,6 +179,9 @@ SAI_IOU_THRESHOLD=0.4      # NMS IoU threshold
 SAI_INPUT_SIZE=864         # Input resolution (int or "height,width")
 SAI_MAX_DETECTIONS=100     # Maximum detections per image
 
+# Wildfire Detection - Smoke-only for early warning
+SAI_DETECTION_CLASSES=[0]  # [0]=smoke-only, [1]=fire-only, [0,1]=both
+
 # Optional Features
 SAI_API_KEY=               # API authentication key (optional)
 SAI_BATCH_SIZE=1           # Batch processing size
@@ -234,7 +238,7 @@ python run.py
 python tests/test_service.py
 
 # 3. Check logs
-tail -f logs/sai-inference.log
+tail -f /var/log/sai-inference/service.log
 
 # 4. Monitor systemd service
 sudo journalctl -u sai-inference -f
@@ -259,8 +263,8 @@ sudo ./deployment/install-daily-test.sh
 sudo ./deployment/uninstall.sh
 ```
 
-### Directory Structure
-- **Production Install**: `/opt/sai-inference/`
-- **Configuration**: `/etc/sai-inference/`
-- **Logs**: `/var/log/sai-inference/`
-- **Service User**: `service` (non-root)
+### Production Directory Structure
+- **Install**: `/opt/sai-inference/` (service files, venv)
+- **Config**: `/etc/sai-inference/production.env` (environment)
+- **Logs**: `/var/log/sai-inference/service.log` (systemd output)
+- **User**: `service` (non-root execution)

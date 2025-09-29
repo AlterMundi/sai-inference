@@ -27,6 +27,8 @@ from .models import (
 )
 from .inference import inference_engine
 from .inference_mosaic import mosaic_inference_engine
+from .alert_manager import alert_manager
+from .database import db_manager
 
 # Configure logging
 logging.basicConfig(
@@ -44,8 +46,9 @@ except ImportError:
     watchdog_enabled = False
     logger.info("SystemD watchdog support not available (systemd-python not installed)")
 
-# Global watchdog state
+# Global task state
 watchdog_task = None
+cleanup_task = None
 
 # Create FastAPI app
 app = FastAPI(
@@ -80,11 +83,34 @@ async def watchdog_ping():
             await asyncio.sleep(30)
 
 
+async def periodic_cleanup():
+    """Periodic cleanup of alert data and expired tickets"""
+    while True:
+        try:
+            await asyncio.sleep(3600)  # Run every hour
+            await alert_manager.cleanup_old_data()
+            logger.debug("Periodic alert cleanup completed")
+        except Exception as e:
+            logger.error(f"Periodic cleanup failed: {e}")
+            await asyncio.sleep(3600)
+
+
 @app.on_event("startup")
 async def startup_event():
-    """Initialize watchdog on startup"""
-    global watchdog_task
-    
+    """Initialize database, cleanup, and watchdog on startup"""
+    global watchdog_task, cleanup_task
+
+    # Initialize database for enhanced alert system
+    try:
+        await db_manager.initialize()
+        logger.info("Enhanced alert system database initialized")
+
+        # Start periodic cleanup task
+        cleanup_task = asyncio.create_task(periodic_cleanup())
+        logger.info("Alert cleanup task started")
+    except Exception as e:
+        logger.warning(f"Database initialization failed - enhanced alerts disabled: {e}")
+
     if watchdog_enabled and os.environ.get('WATCHDOG_USEC'):
         # Only start watchdog if systemd expects it
         logger.info("Starting systemd watchdog task")
@@ -97,9 +123,25 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Clean up watchdog on shutdown"""
-    global watchdog_task
-    
+    """Clean up database, tasks, and watchdog on shutdown"""
+    global watchdog_task, cleanup_task
+
+    # Stop cleanup task
+    if cleanup_task:
+        logger.info("Stopping alert cleanup task")
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+
+    # Close database connections
+    try:
+        await db_manager.close()
+        logger.info("Database connections closed")
+    except Exception as e:
+        logger.warning(f"Database shutdown error: {e}")
+
     if watchdog_task:
         logger.info("Stopping systemd watchdog task")
         watchdog_task.cancel()
@@ -107,7 +149,7 @@ async def shutdown_event():
             await watchdog_task
         except asyncio.CancelledError:
             pass
-    
+
     if watchdog_enabled:
         daemon.notify('STOPPING=1')
 
@@ -259,6 +301,8 @@ async def infer(
     confidence_threshold: Optional[float] = Form(None),
     iou_threshold: Optional[float] = Form(None),
     max_detections: Optional[int] = Form(None),
+    # Enhanced Alert System
+    camera_id: Optional[str] = Form(None, description="Camera identifier for enhanced temporal alert tracking"),
     # High-Value YOLO Parameters
     detection_classes: Optional[str] = Form(None, description="JSON array: [0] for smoke, [1] for fire, [0,1] for both"),
     half_precision: Optional[str] = Form("false", description="true/false"),
@@ -353,7 +397,7 @@ async def infer(
                 source="sai-inference",
                 data=response
             )
-            webhook_payload.alert_level = webhook_payload.determine_alert_level()
+            webhook_payload.alert_level = await webhook_payload.determine_alert_level(camera_id)
             background_tasks.add_task(send_webhook, webhook_url, webhook_payload)
         
         return response
@@ -415,7 +459,7 @@ async def infer_base64(request: InferenceRequest, background_tasks: BackgroundTa
                 source="sai-inference",
                 data=response
             )
-            webhook_payload.alert_level = webhook_payload.determine_alert_level()
+            webhook_payload.alert_level = await webhook_payload.determine_alert_level(request.camera_id)
             background_tasks.add_task(send_webhook, request.webhook_url, webhook_payload)
         
         return response
@@ -430,6 +474,7 @@ async def infer_mosaic(
     file: UploadFile = File(...),
     confidence_threshold: Optional[float] = Form(None),
     iou_threshold: Optional[float] = Form(None),
+    camera_id: Optional[str] = Form(None, description="Camera identifier for enhanced temporal alert tracking"),
     return_image: Optional[str] = Form("false"),
     webhook_url: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = None
@@ -480,7 +525,7 @@ async def infer_mosaic(
                 source="sai-inference-mosaic",
                 data=response
             )
-            webhook_payload.alert_level = webhook_payload.determine_alert_level()
+            webhook_payload.alert_level = await webhook_payload.determine_alert_level(camera_id)
             background_tasks.add_task(send_webhook, webhook_url, webhook_payload)
         
         return response

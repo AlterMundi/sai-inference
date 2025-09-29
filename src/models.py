@@ -100,6 +100,7 @@ class InferenceRequest(BaseModel):
     
     # Processing Options
     webhook_url: Optional[str] = Field(None, description="Webhook URL for async processing")
+    camera_id: Optional[str] = Field(None, description="Camera identifier for enhanced temporal alert tracking")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
@@ -111,13 +112,21 @@ class InferenceResponse(BaseModel):
     image_size: Dict[str, int]  # {"width": int, "height": int}
     detections: List[Detection]
     detection_count: int
+
+    # Wildfire Detection Results
     has_fire: bool
     has_smoke: bool
     confidence_scores: Dict[str, float]  # Average confidence per class
+
+    # Enhanced Wildfire Alert System
+    alert_level: Optional[str] = Field(None, description="Wildfire alert level: none, low, high, critical")
+    detection_mode: Optional[str] = Field(None, description="Detection mode: smoke-only, fire-only, both")
+    active_classes: Optional[List[str]] = Field(None, description="Currently active detection classes")
+
     annotated_image: Optional[str] = Field(None, description="Base64 encoded annotated image")
     version: str
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
-    
+
     model_config = ConfigDict(use_enum_values=True, protected_namespaces=())
 
 
@@ -129,6 +138,7 @@ class BatchInferenceRequest(BaseModel):
     max_detections_per_image: Optional[int] = Field(None, ge=1, le=1000)
     return_images: bool = Field(False)
     parallel_processing: bool = Field(True)
+    camera_ids: Optional[List[Optional[str]]] = Field(None, description="Camera IDs for each image (same order as images)")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
@@ -177,24 +187,22 @@ class WebhookPayload(BaseModel):
     data: InferenceResponse
     alert_level: Optional[str] = None  # "low", "medium", "high", "critical"
     
-    def determine_alert_level(self) -> str:
-        """Determine alert level based on detections"""
-        if not self.data.detections:
-            return "none"
-        
-        fire_count = sum(1 for d in self.data.detections if d.class_name == "fire")
-        smoke_count = sum(1 for d in self.data.detections if d.class_name == "smoke")
-        max_confidence = max((d.confidence for d in self.data.detections), default=0)
-        
-        if fire_count > 2 or (fire_count > 0 and max_confidence > 0.8):
-            return "critical"
-        elif fire_count > 0:
-            return "high"
-        elif smoke_count > 2 or (smoke_count > 0 and max_confidence > 0.7):
-            return "medium"
-        elif smoke_count > 0:
-            return "low"
-        return "none"
+    async def determine_alert_level(self, camera_id: Optional[str] = None) -> str:
+        """
+        Determine alert level using enhanced alert manager
+
+        Args:
+            camera_id: Optional camera identifier for temporal tracking
+
+        Returns:
+            Alert level: "none", "low", "high", "critical"
+        """
+        from .alert_manager import alert_manager
+
+        return await alert_manager.determine_alert_level(
+            detections=self.data.detections,
+            camera_id=camera_id
+        )
 
 
 class ErrorResponse(BaseModel):
