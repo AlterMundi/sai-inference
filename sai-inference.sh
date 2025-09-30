@@ -38,8 +38,32 @@ while [[ $# -gt 0 ]]; do
             API_URL="$2"
             shift 2
             ;;
+        --health)
+            # Check API health
+            health_url="${API_URL%/infer}/health"
+            echo "Checking API health at: $health_url"
+            echo ""
+            response=$(curl -s "$health_url")
+            if [ $? -eq 0 ]; then
+                echo "$response" | jq -r '
+                    "Status: \(.status)",
+                    "Model: \(.loaded_model_info.name) (v\(.loaded_model_info.version))",
+                    "Device: \(.loaded_model_info.device)",
+                    "Confidence: \(.loaded_model_info.confidence_threshold)",
+                    "IoU: \(.loaded_model_info.iou_threshold)",
+                    "Input Size: \(.loaded_model_info.input_size)px",
+                    "CPU: \(.system_metrics.cpu_usage)%",
+                    "Memory: \(.system_metrics.memory_usage)%"
+                ' 2>/dev/null || echo "$response"
+            else
+                echo "❌ API not reachable"
+                exit 1
+            fi
+            exit 0
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS] <image_path_or_directory>"
+            echo "       $0 --health"
             echo ""
             echo "Options:"
             echo "  -c, --confidence FLOAT        Confidence threshold (0.0-1.0, default: 0.39)"
@@ -48,9 +72,11 @@ while [[ $# -gt 0 ]]; do
             echo "  -m, --camera-id ID            Camera identifier for tracking"
             echo "  -w, --line-width INT          Bounding box line width (default: 3)"
             echo "  -u, --url URL                 API endpoint (default: http://localhost:8888/api/v1/infer)"
+            echo "  --health                      Check API health status"
             echo "  -h, --help                    Show this help message"
             echo ""
             echo "Examples:"
+            echo "  $0 --health                                     # Check API status"
             echo "  $0 img-test/                                    # Use defaults"
             echo "  $0 -c 0.5 -i 0.4 img-test/                      # Custom thresholds"
             echo "  $0 -d 0 -m camera01 tests/images/smoke/         # Smoke-only, with camera ID"
