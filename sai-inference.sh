@@ -142,8 +142,8 @@ if [ -d "$INPUT_PATH" ]; then
         filename=$(basename "$img")
         echo "Processing: $filename"
 
-        # Call API with parameters (array handles spaces correctly)
-        response=$(curl "${CURL_ARGS[@]}" -F "file=@$img")
+        # Call API with parameters (quote filename to handle commas and special chars)
+        response=$(curl "${CURL_ARGS[@]}" -F "file=@\"$img\"")
 
         # Extract and decode base64 image if present
         annotated_image=$(echo "$response" | jq -r '.annotated_image // empty')
@@ -172,8 +172,8 @@ elif [ -f "$INPUT_PATH" ]; then
     [ -n "$CAMERA_ID" ] && echo "Camera ID: $CAMERA_ID"
     echo ""
 
-    # Call API with parameters (array handles spaces correctly)
-    response=$(curl "${CURL_ARGS[@]}" -F "file=@$INPUT_PATH")
+    # Call API with parameters (quote filename to handle commas and special chars)
+    response=$(curl "${CURL_ARGS[@]}" -F "file=@\"$INPUT_PATH\"")
 
     # Extract and decode base64 image if present
     annotated_image=$(echo "$response" | jq -r '.annotated_image // empty')
