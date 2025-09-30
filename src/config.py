@@ -27,8 +27,8 @@ class Settings(BaseSettings):
     default_model: str = Field(default="sai_v2.1.pt", alias="SAI_DEFAULT_MODEL")
     device: str = Field(default="cpu", alias="SAI_DEVICE")  # cpu, cuda, cuda:0
     # Production optimized parameters (matches deployment/production.env)
-    confidence_threshold: float = Field(default=0.13, alias="SAI_CONFIDENCE_THRESHOLD")  # Production optimized
-    iou_threshold: float = Field(default=0.4, alias="SAI_IOU_THRESHOLD")  # Production optimized
+    confidence_threshold: float = Field(default=0.39, alias="SAI_CONFIDENCE_THRESHOLD")  # Production optimized
+    iou_threshold: float = Field(default=0.1, alias="SAI_IOU_THRESHOLD")  # Production optimized (lower = more overlapping boxes allowed)
 
     # SAINet2.1 Optimized Resolution (864px - production optimized)
     input_size: Union[int, Tuple[int, int]] = Field(default=864, alias="SAI_INPUT_SIZE")  # Supports int or (height, width)
