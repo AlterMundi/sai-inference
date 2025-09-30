@@ -16,13 +16,14 @@ SAI Inference Service is a high-performance FastAPI-based REST API for fire and 
 4. **Configuration** (`src/config.py`): Pydantic settings management with environment variable support
 5. **Models** (`src/models.py`): Pydantic data models for API requests/responses
 6. **Daily Test Service** (`src/daily_test.py`): Automated testing system for end-to-end validation
+7. **CLI Tool** (`sai-inference.sh`): Command-line wrapper for quick image analysis via API
 
 ### Model Specifications
 - **Model Format**: YOLOv8s architecture (39MB `last.pt` file)
 - **Detection Classes**: 2 classes - `0`: smoke, `1`: fire
 - **Default Configuration**: Smoke-only detection (`SAI_DETECTION_CLASSES=[0]`) for wildfire early warning
 - **Input Resolution**: 864px optimized (configurable via `SAI_INPUT_SIZE`)
-- **Production Thresholds**: confidence=0.13, iou=0.4 (optimized for wildfire detection)
+- **Production Thresholds**: confidence=0.39, iou=0.1 (optimized for wildfire detection)
 - **Threshold Sources**: Environment defaults, overridable per API call
 
 ### SystemD Integration
@@ -78,7 +79,13 @@ python tests/test_service.py
 curl http://localhost:8888/api/v1/health
 curl -X POST http://localhost:8888/api/v1/infer -F "file=@image.jpg"
 
-# Batch process images from directory
+# CLI tool (simple inference)
+sai-inference --health                    # Check API status
+sai-inference image.jpg                   # Analyze single image
+sai-inference /path/to/images/            # Batch process directory
+sai-inference -c 0.5 -d 0 image.jpg       # Custom confidence, smoke-only
+
+# Batch process images from directory (Python)
 python scripts/process_images.py /path/to/images/
 
 # Test n8n integration
@@ -174,8 +181,8 @@ SAI_LOG_LEVEL=INFO         # DEBUG/INFO/WARNING/ERROR
 # Model Configuration
 SAI_MODEL_DIR=models       # Model directory path
 SAI_DEFAULT_MODEL=last.pt  # Default model filename
-SAI_CONFIDENCE=0.13        # Detection confidence threshold
-SAI_IOU_THRESHOLD=0.4      # NMS IoU threshold
+SAI_CONFIDENCE_THRESHOLD=0.39  # Detection confidence threshold (production optimized)
+SAI_IOU_THRESHOLD=0.1      # NMS IoU threshold (lower = more overlapping boxes allowed)
 SAI_INPUT_SIZE=864         # Input resolution (int or "height,width")
 SAI_MAX_DETECTIONS=100     # Maximum detections per image
 
