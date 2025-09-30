@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     default_model: str = Field(default="sai_v2.1.pt", alias="SAI_DEFAULT_MODEL")
     device: str = Field(default="cpu", alias="SAI_DEVICE")  # cpu, cuda, cuda:0
     # Production optimized parameters (matches deployment/production.env)
-    confidence_threshold: float = Field(default=0.13, alias="SAI_CONFIDENCE")  # Production optimized
+    confidence_threshold: float = Field(default=0.13, alias="SAI_CONFIDENCE_THRESHOLD")  # Production optimized
     iou_threshold: float = Field(default=0.4, alias="SAI_IOU_THRESHOLD")  # Production optimized
 
     # SAINet2.1 Optimized Resolution (864px - production optimized)
@@ -97,7 +97,10 @@ class Settings(BaseSettings):
     )
 
     model_config = ConfigDict(
+        # Note: .env file is loaded if present (for development)
+        # Production should use environment variables via systemd (no .env file)
         env_file=".env",
+        env_ignore_empty=True,  # Ignore if .env doesn't exist
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="allow",  # Allow extra fields from environment variables

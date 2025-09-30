@@ -66,7 +66,7 @@ class DatabaseManager:
             camera_id VARCHAR(100) NOT NULL,
             confidence FLOAT NOT NULL,
             detection_count INTEGER DEFAULT 1 CHECK (detection_count > 0),
-            created_at TIMESTAMP DEFAULT NOW(),
+            created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'UTC'),
             metadata TEXT
         );
 

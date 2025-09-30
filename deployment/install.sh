@@ -120,11 +120,18 @@ deploy_code() {
     if [[ -f "$SCRIPT_DIR/../scripts/process_images.py" ]]; then
         cp "$SCRIPT_DIR/../scripts/process_images.py" "$INSTALL_DIR/"
     fi
-    
+
+    # Remove local .env file if exists (production uses systemd environment)
+    if [[ -f "$INSTALL_DIR/.env" ]]; then
+        log_warning "Found local .env file - backing up to .env.backup"
+        mv "$INSTALL_DIR/.env" "$INSTALL_DIR/.env.backup"
+        log_info "Production configuration comes from $CONFIG_DIR/production.env via systemd"
+    fi
+
     # Set permissions
     chown -R "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR"/src "$INSTALL_DIR"/*.py
     chmod +x "$INSTALL_DIR/run.py"
-    
+
     log_success "Application code deployed"
 }
 

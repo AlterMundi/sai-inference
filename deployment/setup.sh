@@ -74,34 +74,31 @@ echo
 echo -e "  ${BLUE}Copy command:${NC}"
 echo -e "  ${GREEN}cp /path/to/your/model.pt models/your_model_name.pt${NC}"
 echo
-echo -e "  ${BLUE}Configure default model:${NC}"
-echo -e "  Edit ${GREEN}.env${NC} file and set: ${GREEN}SAI_DEFAULT_MODEL=your_model_name.pt${NC}"
+echo -e "  ${BLUE}Configure default model (optional):${NC}"
+echo -e "  Set via environment: ${GREEN}export SAI_DEFAULT_MODEL=your_model_name.pt${NC}"
+echo -e "  Or create .env file: ${GREEN}cp .env.example .env${NC} and edit"
 echo
 echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
 
-# Create configuration file
-echo -e "${YELLOW}Creating configuration...${NC}"
+# Configuration setup
+echo -e "${YELLOW}Configuration setup...${NC}"
+
+# Auto-detect CUDA availability for user information
+DETECTED_DEVICE="cpu"
+if python3 -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+    DETECTED_DEVICE="cuda"
+    echo -e "${GREEN}✓ CUDA detected - GPU acceleration available${NC}"
+else
+    echo -e "${YELLOW}⚠ CUDA not available - will use CPU inference${NC}"
+fi
+
 if [ -f ".env" ]; then
     echo -e "${GREEN}✓ .env file already exists (keeping existing configuration)${NC}"
 else
-    if [ -f ".env.example" ]; then
-        cp .env.example .env
-        echo -e "${GREEN}✓ Created .env from .env.example${NC}"
-    else
-        echo -e "${YELLOW}⚠ No .env.example found, creating basic .env${NC}"
-        cat > .env << EOF
-# SAI Inference Service Configuration
-SAI_HOST=0.0.0.0
-SAI_PORT=8888
-SAI_DEVICE=cpu
-SAI_MODEL_DIR=models
-SAI_DEFAULT_MODEL=sai_v2.1.pt
-SAI_CONFIDENCE=0.15
-SAI_INPUT_SIZE=1920
-SAI_LOG_LEVEL=INFO
-EOF
-        echo -e "${GREEN}✓ Created basic .env file${NC}"
-    fi
+    echo -e "${BLUE}ℹ Configuration via environment variables (no .env file needed)${NC}"
+    echo -e "  ${GREEN}Detected device: $DETECTED_DEVICE${NC}"
+    echo -e "  ${BLUE}Optional:${NC} Copy .env.example to .env if you want to customize settings"
+    echo -e "  ${BLUE}Command:${NC} cp .env.example .env"
 fi
 
 # Test installation
@@ -131,9 +128,9 @@ else
     echo -e "   ${GREEN}✓ Models already available${NC}"
 fi
 echo
-echo -e "2. ${BLUE}Configure service:${NC}"
-echo -e "   Edit ${GREEN}.env${NC} file to set your preferences"
-echo -e "   Key setting: ${GREEN}SAI_DEFAULT_MODEL=your_model.pt${NC}"
+echo -e "2. ${BLUE}Configure service (optional):${NC}"
+echo -e "   ${BLUE}cp .env.example .env${NC} (if you want custom settings)"
+echo -e "   Or use environment variables: ${GREEN}export SAI_DEFAULT_MODEL=your_model.pt${NC}"
 echo
 echo -e "3. ${BLUE}Run the service:${NC}"
 echo -e "   ${GREEN}python run.py${NC} (development)"

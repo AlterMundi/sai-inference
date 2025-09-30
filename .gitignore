@@ -104,4 +104,8 @@ processing_log*.txt
 # Development
 scratch/
 sandbox/
-experiments/
+experiments/.env
+
+# Test directories
+img-test/
+out/
