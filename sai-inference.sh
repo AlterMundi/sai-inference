@@ -106,19 +106,25 @@ fi
 # Create output directory
 mkdir -p out
 
-# Build curl parameters
-CURL_PARAMS="-F return_image=true -F show_labels=true -F show_confidence=true -F line_width=$LINE_WIDTH"
-[ -n "$CONFIDENCE" ] && CURL_PARAMS="$CURL_PARAMS -F confidence_threshold=$CONFIDENCE"
-[ -n "$IOU" ] && CURL_PARAMS="$CURL_PARAMS -F iou_threshold=$IOU"
-[ -n "$CAMERA_ID" ] && CURL_PARAMS="$CURL_PARAMS -F camera_id=$CAMERA_ID"
+# Build curl parameters as array for proper quoting
+CURL_ARGS=(
+    -s -X POST "$API_URL"
+    -F "return_image=true"
+    -F "show_labels=true"
+    -F "show_confidence=true"
+    -F "line_width=$LINE_WIDTH"
+)
+[ -n "$CONFIDENCE" ] && CURL_ARGS+=(-F "confidence_threshold=$CONFIDENCE")
+[ -n "$IOU" ] && CURL_ARGS+=(-F "iou_threshold=$IOU")
+[ -n "$CAMERA_ID" ] && CURL_ARGS+=(-F "camera_id=$CAMERA_ID")
 
 # Format detection_classes as JSON array if provided
 if [ -n "$DETECTION_CLASSES" ]; then
     # If already has brackets, use as-is; otherwise wrap in brackets
     if [[ "$DETECTION_CLASSES" =~ ^\[.*\]$ ]]; then
-        CURL_PARAMS="$CURL_PARAMS -F detection_classes=$DETECTION_CLASSES"
+        CURL_ARGS+=(-F "detection_classes=$DETECTION_CLASSES")
     else
-        CURL_PARAMS="$CURL_PARAMS -F detection_classes=[$DETECTION_CLASSES]"
+        CURL_ARGS+=(-F "detection_classes=[$DETECTION_CLASSES]")
     fi
 fi
 
@@ -132,12 +138,12 @@ if [ -d "$INPUT_PATH" ]; then
     [ -n "$CAMERA_ID" ] && echo "Camera ID: $CAMERA_ID"
     echo ""
 
-    find "$INPUT_PATH" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.bmp" -o -iname "*.tiff" -o -iname "*.webp" \) | while read -r img; do
+    find "$INPUT_PATH" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.bmp" -o -iname "*.tiff" -o -iname "*.webp" \) -print0 | while IFS= read -r -d '' img; do
         filename=$(basename "$img")
         echo "Processing: $filename"
 
-        # Call API with parameters
-        response=$(curl -s -X POST "$API_URL" -F "file=@$img" $CURL_PARAMS)
+        # Call API with parameters (array handles spaces correctly)
+        response=$(curl "${CURL_ARGS[@]}" -F "file=@$img")
 
         # Extract and decode base64 image if present
         annotated_image=$(echo "$response" | jq -r '.annotated_image // empty')
@@ -166,8 +172,8 @@ elif [ -f "$INPUT_PATH" ]; then
     [ -n "$CAMERA_ID" ] && echo "Camera ID: $CAMERA_ID"
     echo ""
 
-    # Call API with parameters
-    response=$(curl -s -X POST "$API_URL" -F "file=@$INPUT_PATH" $CURL_PARAMS)
+    # Call API with parameters (array handles spaces correctly)
+    response=$(curl "${CURL_ARGS[@]}" -F "file=@$INPUT_PATH")
 
     # Extract and decode base64 image if present
     annotated_image=$(echo "$response" | jq -r '.annotated_image // empty')
