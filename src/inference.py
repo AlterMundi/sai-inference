@@ -345,6 +345,8 @@ class InferenceEngine:
         show_labels: bool = True,
         show_confidence: bool = True,
         line_width: Optional[int] = None,
+        # Enhanced Alert System
+        camera_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> InferenceResponse:
         """Run inference on an image"""
@@ -532,16 +534,12 @@ class InferenceEngine:
                 active_classes = ["smoke" if 0 in actual_detection_classes else None, "fire" if 1 in actual_detection_classes else None]
                 active_classes = [c for c in active_classes if c is not None]
 
-            # Calculate initial alert level based on detections
-            alert_level = "none"
-            if has_fire:
-                alert_level = "high"  # Fire detected = immediate high alert
-            elif has_smoke:
-                max_smoke_confidence = max([d.confidence for d in detections if d.class_name == DetectionClass.SMOKE], default=0.0)
-                if max_smoke_confidence >= 0.7:
-                    alert_level = "high"
-                elif max_smoke_confidence >= 0.3:
-                    alert_level = "low"
+            # Calculate alert level using enhanced alert manager
+            from .alert_manager import alert_manager
+            alert_level = await alert_manager.determine_alert_level(
+                detections=detections,
+                camera_id=camera_id
+            )
 
             response = InferenceResponse(
                 request_id=request_id,

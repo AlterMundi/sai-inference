@@ -28,7 +28,7 @@ class CameraDetection(Base):
     confidence = Column(Float, nullable=False)
     detection_count = Column(Integer, default=1)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    metadata = Column(Text, nullable=True)
+    detection_metadata = Column(Text, nullable=True)
 
 
 class DatabaseManager:

@@ -373,7 +373,7 @@ async def infer(
             iou_threshold=iou_threshold,
             max_detections=max_detections,
             return_annotated=return_annotated_image,
-            # High-Value YOLO Parameters  
+            # High-Value YOLO Parameters
             detection_classes=parsed_detection_classes,
             half_precision=parsed_half_precision,
             test_time_augmentation=parsed_tta,
@@ -382,6 +382,8 @@ async def infer(
             show_labels=parsed_show_labels,
             show_confidence=parsed_show_confidence,
             line_width=line_width,
+            # Enhanced Alert System
+            camera_id=camera_id,
             metadata={
                 "filename": file.filename,
                 "content_type": file.content_type,
@@ -439,6 +441,8 @@ async def infer_base64(request: InferenceRequest, background_tasks: BackgroundTa
             show_labels=request.show_labels,
             show_confidence=request.show_confidence,
             line_width=request.line_width,
+            # Enhanced Alert System
+            camera_id=request.camera_id,
             metadata={
                 **request.metadata,
                 "source": "base64_json",
