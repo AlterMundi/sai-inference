@@ -64,7 +64,7 @@ class DatabaseManager:
             raise
 
     async def create_tables(self):
-        """Create camera detections table if it doesn't exist"""
+        """Create camera detections table with alert system state tracking"""
         create_table_sql = """
         CREATE TABLE IF NOT EXISTS camera_detections (
             id SERIAL PRIMARY KEY,
@@ -72,12 +72,17 @@ class DatabaseManager:
             confidence FLOAT NOT NULL,
             detection_count INTEGER DEFAULT 0 CHECK (detection_count >= 0),
             created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'UTC'),
-            metadata TEXT
+
+            -- Alert System State (core analytics)
+            final_alert_level VARCHAR(20) NOT NULL,
+            escalated BOOLEAN DEFAULT FALSE,
+            escalation_reason VARCHAR(50)
         );
 
         CREATE INDEX IF NOT EXISTS idx_camera_detections_camera_id ON camera_detections(camera_id);
         CREATE INDEX IF NOT EXISTS idx_camera_detections_created_at ON camera_detections(created_at);
         CREATE INDEX IF NOT EXISTS idx_camera_detections_camera_time ON camera_detections(camera_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_camera_detections_alert_level ON camera_detections(final_alert_level);
         """
 
         async with self.pool.acquire() as conn:
@@ -102,24 +107,40 @@ class DatabaseManager:
         self,
         camera_id: str,
         confidence: float,
-        detection_count: int = 1,
-        metadata: Optional[Dict[str, Any]] = None
+        detection_count: int,
+        final_alert_level: str,
+        escalated: bool = False,
+        escalation_reason: Optional[str] = None
     ) -> int:
-        """Store new detection record"""
-        metadata_json = str(metadata) if metadata else None
+        """
+        Store new detection record with alert system state
 
+        Args:
+            camera_id: Camera identifier
+            confidence: Maximum confidence score (0.0-1.0)
+            detection_count: Number of detections in this inference
+            final_alert_level: Alert level after temporal escalation
+            escalated: Whether alert was escalated from base level
+            escalation_reason: Why escalated ("persistence_low", "persistence_high", None)
+
+        Returns:
+            Database row ID
+        """
         async with self.get_connection() as conn:
             detection_id = await conn.fetchval(
                 """
                 INSERT INTO camera_detections
-                (camera_id, confidence, detection_count, metadata)
-                VALUES ($1, $2, $3, $4)
+                (camera_id, confidence, detection_count, final_alert_level, escalated, escalation_reason)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING id
                 """,
-                camera_id, confidence, detection_count, metadata_json
+                camera_id, confidence, detection_count, final_alert_level, escalated, escalation_reason
             )
 
-        logger.debug(f"Stored detection {detection_id} for camera {camera_id} (confidence: {confidence})")
+        logger.debug(
+            f"Stored detection {detection_id} for camera {camera_id} "
+            f"(confidence: {confidence:.3f}, alert: {final_alert_level}, escalated: {escalated})"
+        )
         return detection_id
 
     async def get_detections_since(

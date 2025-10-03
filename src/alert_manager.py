@@ -164,25 +164,38 @@ class AlertManager:
             return base_level
 
         try:
-            # Store raw detection fact (ALWAYS log when camera_id is provided)
+            # No escalation for "none" base level
+            if base_level == "none":
+                # Log zero-detection execution
+                await db_manager.store_detection(
+                    camera_id=camera_id,
+                    confidence=max_confidence,
+                    detection_count=len(smoke_detections),
+                    final_alert_level="none",
+                    escalated=False,
+                    escalation_reason=None
+                )
+                return "none"
+
+            # Apply temporal escalation based on base level
+            final_level, escalation_reason = await self._apply_temporal_escalation(
+                base_level, camera_id, max_confidence
+            )
+
+            # Determine if escalation occurred
+            escalated = (final_level != base_level)
+
+            # Store detection with alert system state
             await db_manager.store_detection(
                 camera_id=camera_id,
                 confidence=max_confidence,
                 detection_count=len(smoke_detections),
-                metadata={
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "base_alert_level": base_level,
-                    "class_detections": [d.class_name for d in smoke_detections],
-                    "has_detections": len(smoke_detections) > 0
-                }
+                final_alert_level=final_level,
+                escalated=escalated,
+                escalation_reason=escalation_reason if escalated else None
             )
 
-            # No escalation for "none" base level
-            if base_level == "none":
-                return "none"
-
-            # Apply temporal escalation based on base level
-            return await self._apply_temporal_escalation(base_level, camera_id, max_confidence)
+            return final_level
 
         except Exception as e:
             logger.error(f"Enhanced alert logic failed for {camera_id}: {e}")
@@ -193,7 +206,7 @@ class AlertManager:
         base_level: str,
         camera_id: str,
         current_confidence: float
-    ) -> str:
+    ) -> tuple[str, Optional[str]]:
         """
         Apply temporal escalation/de-escalation based on detection patterns
 
@@ -219,7 +232,8 @@ class AlertManager:
             current_confidence: Current detection confidence
 
         Returns:
-            Escalated/de-escalated alert level
+            (final_alert_level, escalation_reason)
+            escalation_reason: "persistence_high", "persistence_low", or None
         """
         try:
             if base_level == "high":
@@ -235,13 +249,13 @@ class AlertManager:
                         f"CRITICAL ESCALATION: Camera {camera_id} - {high_count} high detections "
                         f"in {settings.escalation_hours}h (confidence: {current_confidence:.3f})"
                     )
-                    return "critical"
+                    return ("critical", "persistence_high")
                 else:
                     logger.info(
                         f"HIGH (base): Camera {camera_id} - high confidence detection "
                         f"({high_count}/{settings.persistence_count}, confidence: {current_confidence:.3f})"
                     )
-                    return "high"
+                    return ("high", None)
 
             elif base_level == "low":
                 # Check for high escalation (low confidence + persistence)
@@ -257,20 +271,20 @@ class AlertManager:
                         f"HIGH ESCALATION: Camera {camera_id} - {low_count} persistent detections "
                         f"in {settings.escalation_minutes}m (confidence: {current_confidence:.3f})"
                     )
-                    return "high"
+                    return ("high", "persistence_low")
                 else:
                     logger.debug(
                         f"LOW (base): Camera {camera_id} - low confidence detection "
                         f"({low_count}/{settings.persistence_count}, confidence: {current_confidence:.3f})"
                     )
-                    return "low"
+                    return ("low", None)
 
             # Should never reach here, but return base level as fallback
-            return base_level
+            return (base_level, None)
 
         except Exception as e:
             logger.error(f"Temporal escalation failed for {camera_id}: {e}")
-            return base_level  # Fallback to base level on error
+            return (base_level, None)  # Fallback to base level on error
 
     async def get_camera_status(self, camera_id: str) -> Dict[str, Any]:
         """
