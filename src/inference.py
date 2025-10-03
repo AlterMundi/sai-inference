@@ -554,6 +554,7 @@ class InferenceEngine:
                 alert_level=alert_level,
                 detection_mode=detection_mode,
                 active_classes=active_classes,
+                camera_id=camera_id,  # Echo back for n8n verification
                 annotated_image=annotated_image_b64,
                 version=self.model_manager.current_model_name or "unknown",
                 metadata=metadata or {}

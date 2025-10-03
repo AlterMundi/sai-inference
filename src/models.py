@@ -122,6 +122,7 @@ class InferenceResponse(BaseModel):
     alert_level: Optional[str] = Field(None, description="Wildfire alert level: none, low, high, critical")
     detection_mode: Optional[str] = Field(None, description="Detection mode: smoke-only, fire-only, both")
     active_classes: Optional[List[str]] = Field(None, description="Currently active detection classes")
+    camera_id: Optional[str] = Field(None, description="Camera identifier (echo back for n8n verification)")
 
     annotated_image: Optional[str] = Field(None, description="Base64 encoded annotated image")
     version: str

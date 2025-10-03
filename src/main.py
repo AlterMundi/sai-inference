@@ -337,6 +337,12 @@ async def infer(
         )
     
     try:
+        # Log incoming camera_id for debugging n8n integration
+        if camera_id:
+            logger.info(f"[n8n] Request {request_id} - camera_id received: '{camera_id}'")
+        else:
+            logger.debug(f"[n8n] Request {request_id} - no camera_id provided")
+
         # Parse form data parameters
         def parse_bool(value: Optional[str], default: bool = False) -> bool:
             if value is None:
