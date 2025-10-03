@@ -1,6 +1,55 @@
 """
 Enhanced Alert Manager for SAI Inference
 Clean query-time alert calculation for wildfire smoke detection
+
+ALERT SYSTEM ARCHITECTURE:
+==========================
+
+Two-Mode Operation:
+-------------------
+1. Basic Mode (no camera_id):
+   - Single detection analysis
+   - No database logging
+   - Returns: "none", "low", "high"
+
+2. Enhanced Mode (with camera_id):
+   - Temporal pattern analysis
+   - Database logging of ALL executions
+   - Returns: "none", "low", "high", "critical"
+
+Single-Source Base Alert Level:
+--------------------------------
+Both modes use the same base judgment logic:
+- No detections → "none"
+- Detection confidence >= 0.7 → "high"
+- Detection confidence < 0.7 → "low"
+
+Enhanced Temporal Escalation:
+------------------------------
+Uses dual-window strategy for optimal wildfire detection:
+
+1. Low → High Escalation (30-minute window):
+   - Detects short-term smoke persistence
+   - 3+ detections in 30 minutes → escalate to "high"
+   - Quick de-escalation when pattern stops (within 30m)
+
+2. High → Critical Escalation (3-hour window):
+   - Detects long-term high-confidence patterns
+   - 3+ high-confidence (>=0.7) in 3 hours → escalate to "critical"
+   - Slower de-escalation for sustained threats
+
+Window Strategy Rationale:
+---------------------------
+- Short window (30m) for low confidence: Catches immediate threats while allowing quick recovery from false positives
+- Long window (3h) for high confidence: Tracks serious sustained threats, appropriate for wildfire progression timescales
+- Separate windows prevent premature de-escalation of serious threats while avoiding alert fatigue from transient smoke
+
+Edge Cases:
+-----------
+- Zero detections: Always "none", temporal history ignored
+- Database failure: Falls back to base level (no escalation)
+- Time window boundaries: Detections outside window are not counted (natural de-escalation)
+- Multiple detections in single request: All count toward persistence threshold
 """
 import logging
 from typing import Optional, List, Dict, Any
@@ -48,93 +97,133 @@ class AlertManager:
         Returns:
             Alert level: "none", "low", "high", "critical"
         """
+        # Get base alert level (single source of truth)
+        base_level, max_confidence, smoke_detections = self._get_base_alert_level(detections)
+
+        # Route to enhanced mode if camera_id provided (logs ALL executions + temporal analysis)
+        if camera_id:
+            return await self._enhanced_alert_logic(
+                base_level, max_confidence, smoke_detections, camera_id
+            )
+
+        # Basic mode: return base level directly (no logging, no temporal analysis)
+        return base_level
+
+    def _get_base_alert_level(self, detections: List[Detection]) -> tuple[str, float, List[Detection]]:
+        """
+        Single source of truth for base alert level determination
+        Used by BOTH basic and enhanced modes
+
+        Business Logic:
+        - No detections → "none"
+        - Detection confidence >= 0.7 → "high"
+        - Detection confidence < 0.7 → "low"
+
+        Returns:
+            (alert_level, max_confidence, smoke_detections)
+        """
         # Filter smoke-only detections (wildfire focus)
         smoke_detections = [d for d in detections if d.class_name == "smoke"]
 
         if not smoke_detections:
-            return "none"
+            return ("none", 0.0, smoke_detections)
 
         max_confidence = max(d.confidence for d in smoke_detections)
 
-        # Route to appropriate mode
-        if camera_id:
-            return await self._enhanced_alert_logic(
-                smoke_detections, max_confidence, camera_id
-            )
-        else:
-            return self._basic_alert_logic(max_confidence)
-
-    def _basic_alert_logic(self, max_confidence: float) -> str:
-        """
-        Basic confidence-only alert logic (no temporal tracking)
-        Compatible with enhanced mode alert levels
-        """
+        # Simple two-tier system: high (>=0.7) or low (<0.7)
         if max_confidence >= settings.wildfire_high_threshold:
-            return "high"
-        elif max_confidence >= settings.wildfire_low_threshold:
-            return "low"
+            alert_level = "high"
         else:
-            return "none"
+            alert_level = "low"
+
+        return (alert_level, max_confidence, smoke_detections)
 
     async def _enhanced_alert_logic(
         self,
-        smoke_detections: List[Detection],
+        base_level: str,
         max_confidence: float,
+        smoke_detections: List[Detection],
         camera_id: str
     ) -> str:
         """
-        Enhanced alert logic with temporal tracking and query-time calculation
+        Enhanced alert logic with temporal tracking and escalation/de-escalation
+
+        IMPORTANT: Logs ALL executions when camera_id is provided (even zero detections)
 
         Logic flow:
-        1. Store raw detection fact
-        2. Query recent detections to calculate alert level:
-           - High confidence (≥0.7): If 3+ in 3h → "critical", else "high"
-           - Medium confidence (0.3-0.7): If 3+ in 30m → "high", else "low"
-           - Low confidence (<0.3): "none"
+        1. Store raw detection fact (uses base_level from single source)
+        2. Apply temporal escalation rules:
+           - "none" → stays "none" (no escalation from zero)
+           - "low" + persistence (3+ in 30m) → escalate to "high"
+           - "high" + persistence (3+ in 3h) → escalate to "critical"
         """
         await self.ensure_db_initialized()
 
         if not self.db_initialized:
-            logger.warning(f"Database unavailable, using basic mode for {camera_id}")
-            return self._basic_alert_logic(max_confidence)
+            logger.warning(f"Database unavailable, returning base level for {camera_id}")
+            return base_level
 
         try:
-            # Return none immediately for low confidence
-            if max_confidence < settings.wildfire_low_threshold:
-                return "none"
-
-            # Store raw detection fact
+            # Store raw detection fact (ALWAYS log when camera_id is provided)
             await db_manager.store_detection(
                 camera_id=camera_id,
                 confidence=max_confidence,
                 detection_count=len(smoke_detections),
                 metadata={
                     "timestamp": datetime.utcnow().isoformat(),
-                    "class_detections": [d.class_name for d in smoke_detections]
+                    "base_alert_level": base_level,
+                    "class_detections": [d.class_name for d in smoke_detections],
+                    "has_detections": len(smoke_detections) > 0
                 }
             )
 
-            # Calculate alert level based on current and recent detections
-            return await self._calculate_alert_level(camera_id, max_confidence)
+            # No escalation for "none" base level
+            if base_level == "none":
+                return "none"
+
+            # Apply temporal escalation based on base level
+            return await self._apply_temporal_escalation(base_level, camera_id, max_confidence)
 
         except Exception as e:
             logger.error(f"Enhanced alert logic failed for {camera_id}: {e}")
-            return self._basic_alert_logic(max_confidence)
+            return base_level  # Fallback to base level on error
 
-    async def _calculate_alert_level(self, camera_id: str, current_confidence: float) -> str:
+    async def _apply_temporal_escalation(
+        self,
+        base_level: str,
+        camera_id: str,
+        current_confidence: float
+    ) -> str:
         """
-        Calculate alert level based on current detection and recent history
+        Apply temporal escalation/de-escalation based on detection patterns
 
-        Uses query-time calculation for consistent state
+        Escalation Rules:
+        - "low" base + 3+ detections in 30m → escalate to "high"
+        - "high" base + 3+ detections in 3h → escalate to "critical"
+
+        Natural De-escalation:
+        When detections stop or become sporadic, alerts automatically de-escalate
+        as old detections age out of their respective time windows:
+        - "high" (from low escalation) → "low" when count drops below 3 in 30m window
+        - "critical" → "high" when high-confidence count drops below 3 in 3h window
+
+        Example Timeline (30m window for low confidence):
+        T-35m: detection → counted at T-35m, not counted at T-0m (outside window)
+        T-10m: detection → counted at T-10m and T-0m
+        T-0m:  detection → if total in 30m window >= 3, escalates to "high"
+        T+35m: detection → T-35m aged out, may de-escalate if count < 3
+
+        Args:
+            base_level: Base alert level from single source ("low" or "high")
+            camera_id: Camera identifier for history lookup
+            current_confidence: Current detection confidence
+
+        Returns:
+            Escalated/de-escalated alert level
         """
         try:
-            # Base level from current detection
-            if current_confidence < settings.wildfire_low_threshold:
-                return "none"
-
-            # Check for critical escalation (high confidence + persistence)
-            if current_confidence >= settings.wildfire_high_threshold:
-                # Count high-confidence detections in last 3 hours
+            if base_level == "high":
+                # Check for critical escalation (high confidence + persistence)
                 high_count = await db_manager.count_detections_by_confidence(
                     camera_id=camera_id,
                     min_confidence=settings.wildfire_high_threshold,
@@ -143,41 +232,45 @@ class AlertManager:
 
                 if high_count >= settings.persistence_count:
                     logger.warning(
-                        f"CRITICAL: Camera {camera_id} - {high_count} high detections "
+                        f"CRITICAL ESCALATION: Camera {camera_id} - {high_count} high detections "
                         f"in {settings.escalation_hours}h (confidence: {current_confidence:.3f})"
                     )
                     return "critical"
                 else:
                     logger.info(
-                        f"HIGH: Camera {camera_id} - high confidence detection "
+                        f"HIGH (base): Camera {camera_id} - high confidence detection "
                         f"({high_count}/{settings.persistence_count}, confidence: {current_confidence:.3f})"
                     )
                     return "high"
 
-            # Check for high escalation (medium confidence + persistence)
-            else:  # medium confidence (0.3 <= confidence < 0.7)
-                medium_count = await db_manager.count_detections_by_confidence(
+            elif base_level == "low":
+                # Check for high escalation (low confidence + persistence)
+                # Count ANY detections (no minimum confidence) in recent window
+                low_count = await db_manager.count_detections_by_confidence(
                     camera_id=camera_id,
-                    min_confidence=settings.wildfire_low_threshold,
+                    min_confidence=0.0,  # Count all detections
                     minutes=settings.escalation_minutes
                 )
 
-                if medium_count >= settings.persistence_count:
+                if low_count >= settings.persistence_count:
                     logger.info(
-                        f"HIGH: Camera {camera_id} - {medium_count} medium detections "
+                        f"HIGH ESCALATION: Camera {camera_id} - {low_count} persistent detections "
                         f"in {settings.escalation_minutes}m (confidence: {current_confidence:.3f})"
                     )
                     return "high"
                 else:
                     logger.debug(
-                        f"LOW: Camera {camera_id} - medium confidence detection "
-                        f"({medium_count}/{settings.persistence_count}, confidence: {current_confidence:.3f})"
+                        f"LOW (base): Camera {camera_id} - low confidence detection "
+                        f"({low_count}/{settings.persistence_count}, confidence: {current_confidence:.3f})"
                     )
                     return "low"
 
+            # Should never reach here, but return base level as fallback
+            return base_level
+
         except Exception as e:
-            logger.error(f"Alert level calculation failed for {camera_id}: {e}")
-            return self._basic_alert_logic(current_confidence)
+            logger.error(f"Temporal escalation failed for {camera_id}: {e}")
+            return base_level  # Fallback to base level on error
 
     async def get_camera_status(self, camera_id: str) -> Dict[str, Any]:
         """

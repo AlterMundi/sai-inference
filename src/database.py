@@ -41,11 +41,16 @@ class DatabaseManager:
     async def initialize(self):
         """Initialize database connection pool and create tables"""
         try:
+            # Disable SSL for localhost connections to avoid permission issues
+            # For production remote databases, enable SSL with proper certificates
+            ssl_required = 'localhost' not in self.database_url and '127.0.0.1' not in self.database_url
+
             self.pool = await asyncpg.create_pool(
                 self.database_url,
                 min_size=2,
                 max_size=10,
                 command_timeout=30,
+                ssl=ssl_required,  # Disable SSL for localhost, enable for remote
                 server_settings={
                     'application_name': 'sai-inference-detections',
                 }
@@ -65,7 +70,7 @@ class DatabaseManager:
             id SERIAL PRIMARY KEY,
             camera_id VARCHAR(100) NOT NULL,
             confidence FLOAT NOT NULL,
-            detection_count INTEGER DEFAULT 1 CHECK (detection_count > 0),
+            detection_count INTEGER DEFAULT 0 CHECK (detection_count >= 0),
             created_at TIMESTAMP DEFAULT (NOW() AT TIME ZONE 'UTC'),
             metadata TEXT
         );
