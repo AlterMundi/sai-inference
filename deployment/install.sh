@@ -235,35 +235,32 @@ update_systemd_service() {
 
 # Setup database
 setup_database() {
-    log_info "Setting up enhanced alert database..."
+    log_info "Checking PostgreSQL for enhanced alert system..."
 
     # Check if PostgreSQL is available
     if command -v psql &> /dev/null; then
-        log_info "PostgreSQL found, attempting database setup..."
+        log_info "PostgreSQL found"
 
         # Check if we can connect to PostgreSQL
         if sudo -u postgres psql -c "\l" &> /dev/null; then
             # Check if sai_dashboard database exists
             if sudo -u postgres psql -lqt | cut -d \| -f 1 | grep -qw sai_dashboard; then
-                log_info "Database 'sai_dashboard' exists, setting up detection tables..."
-                sudo -u postgres psql -d sai_dashboard -f "$SCRIPT_DIR/create_detection_database.sql" &> /dev/null || {
-                    log_warning "Could not execute database setup script"
-                    log_warning "Please run manually: sudo -u postgres psql -d sai_dashboard -f '$SCRIPT_DIR/create_detection_database.sql'"
-                }
+                log_success "Database 'sai_dashboard' found - enhanced schema will be auto-created on first run"
             else
                 log_warning "Database 'sai_dashboard' not found"
-                log_warning "Please create the database and run: sudo -u postgres psql -d sai_dashboard -f '$SCRIPT_DIR/create_detection_database.sql'"
+                log_warning "Create with: sudo -u postgres psql -c 'CREATE DATABASE sai_dashboard;'"
+                log_warning "Enhanced alerts will be disabled until database is created"
             fi
         else
             log_warning "Cannot connect to PostgreSQL as postgres user"
-            log_warning "Please setup database manually using: $SCRIPT_DIR/create_detection_database.sql"
+            log_warning "Enhanced alerts may not work - check PostgreSQL configuration"
         fi
     else
         log_warning "PostgreSQL not found - enhanced alerts will be disabled"
-        log_warning "Install PostgreSQL and run: $SCRIPT_DIR/create_detection_database.sql"
+        log_warning "Install PostgreSQL for full functionality"
     fi
 
-    log_success "Database setup completed (check warnings above)"
+    log_success "Database check completed"
 }
 
 # Setup log rotation
@@ -335,13 +332,9 @@ case "$1" in
         fi
         ;;
     db-setup)
-        echo "Setting up detection database..."
-        if [[ -f "/opt/sai-inference/../deployment/create_detection_database.sql" ]]; then
-            sudo -u postgres psql -d sai_dashboard -f "/opt/sai-inference/../deployment/create_detection_database.sql"
-        else
-            echo "❌ Database setup script not found"
-            exit 1
-        fi
+        echo "Enhanced schema is auto-created by the application"
+        echo "To recreate database, use: sudo -u postgres psql -d sai_dashboard"
+        echo "Then restart service: sudo systemctl restart sai-inference"
         ;;
     db-status)
         echo "Checking database connection..."
@@ -386,11 +379,10 @@ main() {
     echo
     log_info "Next steps:"
     echo "  1. Review configuration: $CONFIG_DIR/production.env"
-    echo "  2. Setup PostgreSQL database (if not done): sudo -u postgres psql -d sai_dashboard -f $SCRIPT_DIR/create_detection_database.sql"
-    echo "  3. Enable service: sudo systemctl enable $SERVICE_NAME"
-    echo "  4. Start service: sudo systemctl start $SERVICE_NAME"
-    echo "  5. Check status: sai-service status"
-    echo "  6. Test API: sai-service health"
+    echo "  2. Enable service: sudo systemctl enable $SERVICE_NAME"
+    echo "  3. Start service: sudo systemctl start $SERVICE_NAME"
+    echo "  4. Check status: sai-service status"
+    echo "  5. Test API: sai-service health"
     echo
     log_info "Management commands available:"
     echo "  sai-service {start|stop|restart|reload|status|logs|health|test|db-setup|db-status}"

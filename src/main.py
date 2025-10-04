@@ -1,7 +1,7 @@
 """
 SAI Inference Service - FastAPI Application
 """
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, BackgroundTasks, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, BackgroundTasks, Form, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
@@ -17,13 +17,16 @@ import base64
 import io
 import asyncio
 import os
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 from .config import settings
 from .models import (
     InferenceRequest, InferenceResponse,
     BatchInferenceRequest, BatchInferenceResponse,
     HealthCheck, ModelInfo, ErrorResponse,
-    WebhookPayload
+    WebhookPayload,
+    CameraStats, DetectionRecord, CameraListItem, EscalationEvent,
+    AlertSummary, EscalationStats
 )
 from .inference import inference_engine
 from .inference_mosaic import mosaic_inference_engine
@@ -49,6 +52,56 @@ except ImportError:
 # Global task state
 watchdog_task = None
 cleanup_task = None
+metrics_task = None
+
+# Prometheus Metrics
+if settings.enable_metrics:
+    # Request counters
+    inference_requests_total = Counter(
+        'sai_inference_requests_total',
+        'Total number of inference requests',
+        ['endpoint', 'status']
+    )
+
+    # Detection counters
+    detections_total = Counter(
+        'sai_detections_total',
+        'Total number of detections',
+        ['class', 'camera_id']
+    )
+
+    # Alert escalation counters
+    alert_escalations_total = Counter(
+        'sai_alert_escalations_total',
+        'Total number of alert escalations',
+        ['reason', 'camera_id']
+    )
+
+    # Inference duration histogram
+    inference_duration_seconds = Histogram(
+        'sai_inference_duration_seconds',
+        'Inference processing time in seconds',
+        ['endpoint']
+    )
+
+    # Model inference duration
+    model_inference_duration_seconds = Histogram(
+        'sai_model_inference_duration_seconds',
+        'Model inference time in seconds'
+    )
+
+    # System metrics
+    active_cameras = Gauge(
+        'sai_active_cameras',
+        'Number of active cameras in last 24 hours'
+    )
+
+    total_alerts_24h = Gauge(
+        'sai_total_alerts_24h',
+        'Total alerts in last 24 hours'
+    )
+
+    logger.info("Prometheus metrics initialized")
 
 # Create FastAPI app
 app = FastAPI(
@@ -95,10 +148,31 @@ async def periodic_cleanup():
             await asyncio.sleep(3600)
 
 
+async def update_prometheus_gauges():
+    """Update Prometheus gauge metrics periodically"""
+    while True:
+        try:
+            await asyncio.sleep(60)  # Update every minute
+
+            if settings.enable_metrics:
+                # Update active cameras count
+                cameras = await db_manager.get_all_cameras(hours=24)
+                active_cameras.set(len(cameras))
+
+                # Update total alerts
+                summary = await db_manager.get_alert_summary(hours=24)
+                total_alerts_24h.set(summary['total_alerts'])
+
+                logger.debug("Prometheus gauge metrics updated")
+        except Exception as e:
+            logger.error(f"Prometheus gauge update failed: {e}")
+            await asyncio.sleep(60)
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize database, cleanup, and watchdog on startup"""
-    global watchdog_task, cleanup_task
+    global watchdog_task, cleanup_task, metrics_task
 
     # Initialize database for enhanced alert system
     try:
@@ -108,6 +182,11 @@ async def startup_event():
         # Start periodic cleanup task
         cleanup_task = asyncio.create_task(periodic_cleanup())
         logger.info("Alert cleanup task started")
+
+        # Start Prometheus gauge update task
+        if settings.enable_metrics:
+            metrics_task = asyncio.create_task(update_prometheus_gauges())
+            logger.info("Prometheus metrics update task started")
     except Exception as e:
         logger.warning(f"Database initialization failed - enhanced alerts disabled: {e}")
 
@@ -124,7 +203,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up database, tasks, and watchdog on shutdown"""
-    global watchdog_task, cleanup_task
+    global watchdog_task, cleanup_task, metrics_task
 
     # Stop cleanup task
     if cleanup_task:
@@ -132,6 +211,15 @@ async def shutdown_event():
         cleanup_task.cancel()
         try:
             await cleanup_task
+        except asyncio.CancelledError:
+            pass
+
+    # Stop metrics task
+    if metrics_task:
+        logger.info("Stopping Prometheus metrics task")
+        metrics_task.cancel()
+        try:
+            await metrics_task
         except asyncio.CancelledError:
             pass
 
@@ -550,7 +638,7 @@ async def infer_batch(request: BatchInferenceRequest):
     """Run inference on multiple images"""
     request_id = str(uuid.uuid4())
     start_time = datetime.utcnow()
-    
+
     try:
         # Process images
         results = await inference_engine.infer_batch(
@@ -562,14 +650,14 @@ async def infer_batch(request: BatchInferenceRequest):
             return_annotated=request.return_images,
             metadata=request.metadata
         )
-        
+
         # Calculate summary
         total_detections = sum(r.detection_count for r in results)
         total_fire = sum(1 for r in results if r.has_fire)
         total_smoke = sum(1 for r in results if r.has_smoke)
-        
+
         processing_time = (datetime.utcnow() - start_time).total_seconds() * 1000
-        
+
         return BatchInferenceResponse(
             request_id=request_id,
             timestamp=start_time,
@@ -584,10 +672,116 @@ async def infer_batch(request: BatchInferenceRequest):
             },
             metadata=request.metadata
         )
-        
+
     except Exception as e:
         logger.error(f"Batch inference failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Camera Analytics API
+# ============================================================================
+
+@app.get(f"{settings.api_prefix}/cameras", response_model=List[CameraListItem])
+async def list_cameras(hours: int = 24):
+    """List all cameras with recent activity"""
+    try:
+        cameras = await db_manager.get_all_cameras(hours=hours)
+        return cameras
+    except Exception as e:
+        logger.error(f"Failed to list cameras: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(f"{settings.api_prefix}/cameras/{{camera_id}}/stats", response_model=CameraStats)
+async def get_camera_statistics(camera_id: str, hours: int = 24):
+    """Get detection statistics for a specific camera"""
+    try:
+        stats = await db_manager.get_camera_stats(camera_id=camera_id, hours=hours)
+        return stats
+    except Exception as e:
+        logger.error(f"Failed to get camera stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(f"{settings.api_prefix}/cameras/{{camera_id}}/detections", response_model=List[DetectionRecord])
+async def get_camera_detections(
+    camera_id: str,
+    minutes: int = 180,
+    min_confidence: Optional[float] = None
+):
+    """Get recent detections for a specific camera"""
+    try:
+        detections = await db_manager.get_detections_with_metadata(
+            camera_id=camera_id,
+            minutes=minutes,
+            min_confidence=min_confidence
+        )
+        return detections
+    except Exception as e:
+        logger.error(f"Failed to get camera detections: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(f"{settings.api_prefix}/cameras/{{camera_id}}/escalations", response_model=List[EscalationEvent])
+async def get_camera_escalations(camera_id: str, hours: int = 24):
+    """Get escalation events for a specific camera"""
+    try:
+        escalations = await db_manager.get_escalation_events(camera_id=camera_id, hours=hours)
+        return escalations
+    except Exception as e:
+        logger.error(f"Failed to get camera escalations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Alert History API
+# ============================================================================
+
+@app.get(f"{settings.api_prefix}/alerts/recent", response_model=List[DetectionRecord])
+async def get_recent_alerts(limit: int = 100, camera_id: Optional[str] = None):
+    """Get recent alerts across all cameras or for a specific camera"""
+    try:
+        alerts = await db_manager.get_recent_alerts(limit=limit, camera_id=camera_id)
+        return alerts
+    except Exception as e:
+        logger.error(f"Failed to get recent alerts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(f"{settings.api_prefix}/alerts/summary", response_model=AlertSummary)
+async def get_alert_summary(hours: int = 24, camera_id: Optional[str] = None):
+    """Get alert summary statistics"""
+    try:
+        summary = await db_manager.get_alert_summary(hours=hours, camera_id=camera_id)
+        return summary
+    except Exception as e:
+        logger.error(f"Failed to get alert summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(f"{settings.api_prefix}/alerts/escalation-stats", response_model=EscalationStats)
+async def get_escalation_statistics(hours: int = 24, camera_id: Optional[str] = None):
+    """Get escalation statistics"""
+    try:
+        stats = await db_manager.get_escalation_stats(hours=hours, camera_id=camera_id)
+        return stats
+    except Exception as e:
+        logger.error(f"Failed to get escalation stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Prometheus Metrics Endpoint
+# ============================================================================
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint"""
+    if not settings.enable_metrics:
+        raise HTTPException(status_code=404, detail="Metrics disabled")
+
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 

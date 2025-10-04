@@ -85,7 +85,8 @@ class AlertManager:
     async def determine_alert_level(
         self,
         detections: List[Detection],
-        camera_id: Optional[str] = None
+        camera_id: Optional[str] = None,
+        context: Optional['InferenceContext'] = None
     ) -> str:
         """
         Determine alert level based on smoke detections
@@ -93,6 +94,7 @@ class AlertManager:
         Args:
             detections: List of detection objects
             camera_id: Optional camera identifier for enhanced tracking
+            context: Optional full inference context for comprehensive logging
 
         Returns:
             Alert level: "none", "low", "high", "critical"
@@ -103,7 +105,7 @@ class AlertManager:
         # Route to enhanced mode if camera_id provided (logs ALL executions + temporal analysis)
         if camera_id:
             return await self._enhanced_alert_logic(
-                base_level, max_confidence, smoke_detections, camera_id
+                base_level, max_confidence, smoke_detections, camera_id, context
             )
 
         # Basic mode: return base level directly (no logging, no temporal analysis)
@@ -143,7 +145,8 @@ class AlertManager:
         base_level: str,
         max_confidence: float,
         smoke_detections: List[Detection],
-        camera_id: str
+        camera_id: str,
+        context: Optional['InferenceContext'] = None
     ) -> str:
         """
         Enhanced alert logic with temporal tracking and escalation/de-escalation
@@ -166,14 +169,15 @@ class AlertManager:
         try:
             # No escalation for "none" base level
             if base_level == "none":
-                # Log zero-detection execution
-                await db_manager.store_detection(
+                # Log zero-detection execution with full context
+                await self._store_detection_with_context(
                     camera_id=camera_id,
-                    confidence=max_confidence,
-                    detection_count=len(smoke_detections),
-                    final_alert_level="none",
-                    escalated=False,
-                    escalation_reason=None
+                    base_level="none",
+                    final_level="none",
+                    escalation_reason=None,
+                    max_confidence=max_confidence,
+                    smoke_detections=smoke_detections,
+                    context=context
                 )
                 return "none"
 
@@ -182,17 +186,15 @@ class AlertManager:
                 base_level, camera_id, max_confidence
             )
 
-            # Determine if escalation occurred
-            escalated = (final_level != base_level)
-
-            # Store detection with alert system state
-            await db_manager.store_detection(
+            # Store detection with full context
+            await self._store_detection_with_context(
                 camera_id=camera_id,
-                confidence=max_confidence,
-                detection_count=len(smoke_detections),
-                final_alert_level=final_level,
-                escalated=escalated,
-                escalation_reason=escalation_reason if escalated else None
+                base_level=base_level,
+                final_level=final_level,
+                escalation_reason=escalation_reason,
+                max_confidence=max_confidence,
+                smoke_detections=smoke_detections,
+                context=context
             )
 
             return final_level
@@ -200,6 +202,67 @@ class AlertManager:
         except Exception as e:
             logger.error(f"Enhanced alert logic failed for {camera_id}: {e}")
             return base_level  # Fallback to base level on error
+
+    async def _store_detection_with_context(
+        self,
+        camera_id: str,
+        base_level: str,
+        final_level: str,
+        escalation_reason: Optional[str],
+        max_confidence: float,
+        smoke_detections: List[Detection],
+        context: Optional['InferenceContext'] = None
+    ):
+        """Store detection with full inference context if available"""
+        # Count smoke vs fire detections from context if available
+        all_detections = context.detections if context else smoke_detections
+        smoke_count = sum(1 for d in all_detections if d.class_name == "smoke")
+        fire_count = sum(1 for d in all_detections if d.class_name == "fire")
+
+        # Calculate average confidence
+        avg_conf = None
+        if all_detections:
+            avg_conf = sum(d.confidence for d in all_detections) / len(all_detections)
+
+        # Use context data if available, otherwise use minimal data
+        await db_manager.store_detection(
+            camera_id=camera_id,
+            request_id=context.request_id if context else "unknown",
+            detection_count=len(all_detections),
+            smoke_count=smoke_count,
+            fire_count=fire_count,
+            max_confidence=max_confidence,
+            avg_confidence=avg_conf,
+            base_alert_level=base_level,
+            final_alert_level=final_level,
+            escalation_reason=escalation_reason,
+            detections=context.to_detection_dict_list() if context else [
+                {
+                    "class_id": d.class_id,
+                    "class_name": d.class_name,
+                    "confidence": d.confidence,
+                    "bbox": {
+                        "x1": d.bbox.x1,
+                        "y1": d.bbox.y1,
+                        "x2": d.bbox.x2,
+                        "y2": d.bbox.y2
+                    }
+                }
+                for d in smoke_detections
+            ],
+            processing_time_ms=context.processing_time_ms if context else None,
+            model_inference_time_ms=context.model_inference_time_ms if context else None,
+            image_width=context.image_width if context else None,
+            image_height=context.image_height if context else None,
+            model_version=context.model_version if context else None,
+            confidence_threshold=context.confidence_threshold if context else None,
+            iou_threshold=context.iou_threshold if context else None,
+            detection_classes=context.detection_classes if context else None,
+            source=context.source if context else "api-direct",
+            n8n_workflow_id=context.n8n_workflow_id if context else None,
+            n8n_execution_id=context.n8n_execution_id if context else None,
+            metadata=context.metadata if context else None
+        )
 
     async def _apply_temporal_escalation(
         self,

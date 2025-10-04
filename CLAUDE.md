@@ -91,6 +91,13 @@ python scripts/process_images.py /path/to/images/
 # Test n8n integration
 ./scripts/test_n8n_integration.sh
 
+# Test new analytics endpoints
+curl http://localhost:8888/api/v1/cameras                           # List active cameras
+curl http://localhost:8888/api/v1/cameras/cam-id/stats              # Camera statistics
+curl http://localhost:8888/api/v1/alerts/summary?hours=24           # Alert summary
+curl http://localhost:8888/api/v1/alerts/escalation-stats           # Escalation analysis
+curl http://localhost:8888/metrics                                   # Prometheus metrics
+
 # Run daily test service
 python src/daily_test.py --config config/daily-test.env
 
@@ -114,9 +121,20 @@ ruff src/
 - **Load Model**: `POST /api/v1/models/load` - Load a new model
 - **Switch Model**: `POST /api/v1/models/switch` - Switch active model
 
-### System
+### Camera Analytics API
+- **List Cameras**: `GET /api/v1/cameras?hours=24` - List all cameras with recent activity
+- **Camera Stats**: `GET /api/v1/cameras/{camera_id}/stats?hours=24` - Detection statistics for specific camera
+- **Camera Detections**: `GET /api/v1/cameras/{camera_id}/detections?minutes=180&min_confidence=0.3` - Recent detections with filters
+- **Camera Escalations**: `GET /api/v1/cameras/{camera_id}/escalations?hours=24` - Escalation events for camera
+
+### Alert History API
+- **Recent Alerts**: `GET /api/v1/alerts/recent?limit=100&camera_id=optional` - Recent alerts across cameras
+- **Alert Summary**: `GET /api/v1/alerts/summary?hours=24&camera_id=optional` - Aggregated alert statistics
+- **Escalation Stats**: `GET /api/v1/alerts/escalation-stats?hours=24&camera_id=optional` - Escalation analysis
+
+### System & Monitoring
 - **Health Check**: `GET /api/v1/health` - Service health and metrics
-- **Metrics**: Prometheus client installed (endpoint not implemented yet)
+- **Prometheus Metrics**: `GET /metrics` - Prometheus-compatible metrics endpoint
 
 ## n8n Integration
 
