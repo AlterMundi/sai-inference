@@ -1,6 +1,5 @@
 """
 Database module for SAI Inference Detection Tracking
-PostgreSQL-based detection storage with query-time alert calculation
 """
 import asyncio
 import logging
@@ -10,26 +9,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import asyncpg
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text
-from sqlalchemy.ext.declarative import declarative_base
 
 from .config import settings
 
 logger = logging.getLogger(__name__)
-
-# SQLAlchemy model for reference
-Base = declarative_base()
-
-class CameraDetection(Base):
-    """Raw detection record for query-time alert calculation"""
-    __tablename__ = 'camera_detections'
-
-    id = Column(Integer, primary_key=True)
-    camera_id = Column(String(100), nullable=False, index=True)
-    confidence = Column(Float, nullable=False)
-    detection_count = Column(Integer, default=1)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    detection_metadata = Column(Text, nullable=True)
 
 
 class DatabaseManager:
@@ -42,8 +25,6 @@ class DatabaseManager:
     async def initialize(self):
         """Initialize database connection pool and create tables"""
         try:
-            # Disable SSL for localhost connections to avoid permission issues
-            # For production remote databases, enable SSL with proper certificates
             ssl_required = 'localhost' not in self.database_url and '127.0.0.1' not in self.database_url
 
             self.pool = await asyncpg.create_pool(
@@ -51,10 +32,8 @@ class DatabaseManager:
                 min_size=2,
                 max_size=10,
                 command_timeout=30,
-                ssl=ssl_required,  # Disable SSL for localhost, enable for remote
-                server_settings={
-                    'application_name': 'sai-inference-detections',
-                }
+                ssl=ssl_required,
+                server_settings={'application_name': 'sai-inference-detections'}
             )
 
             await self.create_tables()
@@ -65,35 +44,30 @@ class DatabaseManager:
             raise
 
     async def create_tables(self):
-        """Create enhanced camera detections table with comprehensive logging"""
-        # Check if table already exists
+        """Create camera_detections table from migration file"""
         async with self.pool.acquire() as conn:
             table_exists = await conn.fetchval(
                 "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'camera_detections')"
             )
 
             if table_exists:
-                logger.info("Enhanced schema already exists, skipping creation")
+                logger.info("Schema already exists")
                 return
 
-            # Table doesn't exist, create it from migration file
             migration_file = Path(__file__).parent.parent / 'migrations' / '001_enhanced_schema.sql'
 
             if migration_file.exists():
                 migration_sql = migration_file.read_text()
-                # Execute migration (skip comments and empty lines)
                 statements = [s.strip() for s in migration_sql.split(';') if s.strip() and not s.strip().startswith('--')]
                 for statement in statements:
                     if statement:
                         try:
                             await conn.execute(statement)
                         except Exception as e:
-                            # Ignore "already exists" errors
                             if "already exists" not in str(e):
                                 raise
-                logger.info("Enhanced schema created successfully")
+                logger.info("Schema created successfully")
             else:
-                logger.error("Migration file not found and table doesn't exist!")
                 raise FileNotFoundError(f"Migration file not found: {migration_file}")
 
     async def close(self):
