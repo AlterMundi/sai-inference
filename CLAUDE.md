@@ -186,6 +186,95 @@ The service acts as a drop-in replacement for Ollama in n8n workflows. **All int
 - Alert levels for severity-based routing
 - Compatible with n8n's expression syntax: `{{$json.has_fire}}`
 
+## Database & Logging Architecture
+
+### PostgreSQL Database Configuration
+
+**Production Database**: `sai_dashboard` (shared with n8n services)
+**Table**: `camera_detections` (owned by `sai_user`)
+**Connection**: Async connection pool via asyncpg
+
+```bash
+# Database URL format
+SAI_DATABASE_URL=postgresql://sai_user:password@localhost/sai_dashboard?sslmode=disable
+```
+
+### Database Schema Overview
+
+The `camera_detections` table provides comprehensive logging of ALL inference executions:
+
+**Key Features**:
+- **Complete Execution Logging**: Every API call is recorded (including zero-detection results)
+- **Temporal Alert Tracking**: Dual-window escalation system for wildfire detection
+- **Performance Metrics**: Processing times, model inference metrics
+- **Spatial Data**: JSONB storage of bounding boxes and detection details
+- **Alert State Tracking**: Base alert → Final alert with escalation reasons
+
+**Schema Structure** (25 columns):
+```sql
+-- Identification
+id, camera_id, request_id, created_at
+
+-- Detection Summary (fast aggregation)
+detection_count, smoke_count, fire_count, max_confidence, avg_confidence
+
+-- Alert System State (dual-mode tracking)
+base_alert_level        -- Initial: none/low/high
+final_alert_level       -- After temporal analysis: none/low/high/critical
+escalation_reason       -- NULL | persistence_low | persistence_high | false_positive_pattern
+
+-- Detection Details (JSONB for spatial analysis)
+detections              -- Array of {class_id, class_name, confidence, bbox}
+
+-- Performance Metrics
+processing_time_ms, model_inference_time_ms, image_width, image_height
+
+-- Model Configuration (reproducibility)
+model_version, confidence_threshold, iou_threshold, detection_classes
+
+-- Request Context (tracing)
+source, n8n_workflow_id, n8n_execution_id, metadata
+```
+
+**Optimized Indexes** (11 indexes):
+- B-tree: camera_id+created_at, alert levels, escalations
+- GIN: JSONB detections for spatial queries
+- Partial: High-confidence detections, cameras with detections
+
+### Alert System Architecture
+
+**Dual-Mode Operation**:
+1. **Basic Mode** (no camera_id): Single detection analysis → "none"/"low"/"high"
+2. **Enhanced Mode** (with camera_id): Temporal tracking + DB logging → "none"/"low"/"high"/"critical"
+
+**Temporal Escalation Windows**:
+- **Low → High**: 30-minute window (3+ detections → immediate threat)
+- **High → Critical**: 3-hour window (3+ high-confidence → sustained threat)
+
+**Escalation Tracking**:
+- All escalations stored with `escalation_reason` field
+- Integrity constraint: `base_alert_level != final_alert_level` requires reason
+- Query-time analytics via Analytics API endpoints
+
+### Production Database Verification
+
+```bash
+# Check database connection
+sudo -u postgres psql -d sai_dashboard -c "SELECT application_name, state FROM pg_stat_activity WHERE application_name LIKE '%sai%';"
+
+# Check recent records
+sudo -u postgres psql -d sai_dashboard -c "SELECT COUNT(*), MAX(created_at) FROM camera_detections;"
+
+# View escalation statistics
+curl http://localhost:8888/api/v1/alerts/escalation-stats?hours=24
+```
+
+**Expected Metrics** (production baseline):
+- ~5,000 executions/day across all cameras
+- Detection rate: 0.05-0.1% (high selectivity, low false positives)
+- Escalation rate: <0.1% (only persistent patterns)
+- Average latency: 70-90ms per inference
+
 ## Environment Configuration
 
 ### Core Settings (`.env` file)
@@ -195,6 +284,9 @@ SAI_HOST=0.0.0.0           # Bind address
 SAI_PORT=8888              # Service port
 SAI_DEVICE=cpu             # cpu/cuda/cuda:0 for GPU
 SAI_LOG_LEVEL=INFO         # DEBUG/INFO/WARNING/ERROR
+
+# Database Configuration
+SAI_DATABASE_URL=postgresql://sai_user:password@localhost/sai_dashboard?sslmode=disable
 
 # Model Configuration
 SAI_MODEL_DIR=models       # Model directory path

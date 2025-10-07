@@ -67,7 +67,7 @@ class Settings(BaseSettings):
 
     # Enhanced Alert System (Wildfire Detection)
     database_url: str = Field(
-        default="postgresql://sai_user:password@localhost/sai_dashboard",
+        default="postgresql://sai_user:password@localhost/sai_inference",
         env="SAI_DATABASE_URL"
     )
     wildfire_high_threshold: float = Field(
