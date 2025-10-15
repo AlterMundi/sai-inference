@@ -54,7 +54,20 @@ watchdog_task = None
 cleanup_task = None
 metrics_task = None
 
-# Prometheus Metrics
+# Prometheus Metrics - Initialize as None first
+inference_requests_total = None
+detections_total = None
+alert_escalations_total = None
+alert_levels_total = None
+inference_duration_seconds = None
+model_inference_duration_seconds = None
+active_cameras = None
+total_alerts_24h = None
+db_query_duration_seconds = None
+image_width_pixels = None
+image_height_pixels = None
+camera_detection_rate = None
+
 if settings.enable_metrics:
     # Request counters
     inference_requests_total = Counter(
@@ -63,18 +76,25 @@ if settings.enable_metrics:
         ['endpoint', 'status']
     )
 
-    # Detection counters
+    # Detection counters with class and camera labels
     detections_total = Counter(
         'sai_detections_total',
         'Total number of detections',
-        ['class', 'camera_id']
+        ['class_name', 'camera_id', 'endpoint']
     )
 
-    # Alert escalation counters
+    # Alert escalation counters with reason and camera labels
     alert_escalations_total = Counter(
         'sai_alert_escalations_total',
         'Total number of alert escalations',
         ['reason', 'camera_id']
+    )
+
+    # Alert level counters
+    alert_levels_total = Counter(
+        'sai_alert_levels_total',
+        'Total alerts by level',
+        ['alert_level', 'camera_id', 'endpoint']
     )
 
     # Inference duration histogram
@@ -101,7 +121,85 @@ if settings.enable_metrics:
         'Total alerts in last 24 hours'
     )
 
+    # Database query performance
+    db_query_duration_seconds = Histogram(
+        'sai_db_query_duration_seconds',
+        'Database query execution time in seconds',
+        ['query_type']
+    )
+
+    # Image dimension statistics
+    image_width_pixels = Histogram(
+        'sai_image_width_pixels',
+        'Input image width in pixels',
+        ['endpoint'],
+        buckets=[320, 640, 864, 1024, 1280, 1920, 2560, 3840, 5120, 7680]
+    )
+
+    image_height_pixels = Histogram(
+        'sai_image_height_pixels',
+        'Input image height in pixels',
+        ['endpoint'],
+        buckets=[240, 480, 640, 768, 1024, 1080, 1440, 2160, 3840, 5760]
+    )
+
+    # Per-camera detection rate (detections per request)
+    camera_detection_rate = Histogram(
+        'sai_camera_detection_rate',
+        'Detections per request by camera',
+        ['camera_id'],
+        buckets=[0, 1, 2, 3, 5, 10, 20, 50, 100]
+    )
+
     logger.info("Prometheus metrics initialized")
+
+# Track inference metrics function (works with or without metrics enabled)
+def track_inference_metrics(response: InferenceResponse, endpoint: str, status: str = "success"):
+    """Track inference metrics for Prometheus"""
+    if not settings.enable_metrics or inference_requests_total is None:
+        return
+
+    try:
+        # Track request
+        inference_requests_total.labels(endpoint=endpoint, status=status).inc()
+
+        # Track detections by class
+        for detection in response.detections:
+            detections_total.labels(
+                class_name=detection.class_name,
+                camera_id=response.camera_id or "none",
+                endpoint=endpoint
+            ).inc()
+
+        # Track alert levels
+        alert_levels_total.labels(
+            alert_level=response.alert_level,
+            camera_id=response.camera_id or "none",
+            endpoint=endpoint
+        ).inc()
+
+        # Track inference duration
+        inference_duration_seconds.labels(endpoint=endpoint).observe(
+            response.processing_time_ms / 1000.0
+        )
+
+        # Track image dimensions
+        if response.image_size:
+            image_width_pixels.labels(endpoint=endpoint).observe(
+                response.image_size['width']
+            )
+            image_height_pixels.labels(endpoint=endpoint).observe(
+                response.image_size['height']
+            )
+
+        # Track camera detection rate
+        if response.camera_id:
+            camera_detection_rate.labels(camera_id=response.camera_id).observe(
+                response.detection_count
+            )
+
+    except Exception as e:
+        logger.error(f"Failed to track metrics: {e}")
 
 # Create FastAPI app
 app = FastAPI(
@@ -495,11 +593,16 @@ async def infer(
             )
             webhook_payload.alert_level = await webhook_payload.determine_alert_level(camera_id)
             background_tasks.add_task(send_webhook, webhook_url, webhook_payload)
-        
+
+        # Track metrics
+        track_inference_metrics(response, endpoint="/api/v1/infer", status="success")
+
         return response
-        
+
     except Exception as e:
         logger.error(f"Binary inference failed: {e}")
+        if settings.enable_metrics and inference_requests_total:
+            inference_requests_total.labels(endpoint="/api/v1/infer", status="error").inc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -559,11 +662,16 @@ async def infer_base64(request: InferenceRequest, background_tasks: BackgroundTa
             )
             webhook_payload.alert_level = await webhook_payload.determine_alert_level(request.camera_id)
             background_tasks.add_task(send_webhook, request.webhook_url, webhook_payload)
-        
+
+        # Track metrics
+        track_inference_metrics(response, endpoint="/api/v1/infer/base64", status="success")
+
         return response
-        
+
     except Exception as e:
         logger.error(f"Base64 inference failed: {e}")
+        if settings.enable_metrics and inference_requests_total:
+            inference_requests_total.labels(endpoint="/api/v1/infer/base64", status="error").inc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -625,11 +733,16 @@ async def infer_mosaic(
             )
             webhook_payload.alert_level = await webhook_payload.determine_alert_level(camera_id)
             background_tasks.add_task(send_webhook, webhook_url, webhook_payload)
-        
+
+        # Track metrics
+        track_inference_metrics(response, endpoint="/api/v1/infer/mosaic", status="success")
+
         return response
-        
+
     except Exception as e:
         logger.error(f"Mosaic inference failed: {e}")
+        if settings.enable_metrics and inference_requests_total:
+            inference_requests_total.labels(endpoint="/api/v1/infer/mosaic", status="error").inc()
         raise HTTPException(status_code=500, detail=str(e))
 
 

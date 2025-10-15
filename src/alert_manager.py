@@ -197,6 +197,19 @@ class AlertManager:
                 context=context
             )
 
+            # Track escalation metric
+            if settings.enable_metrics and escalation_reason:
+                try:
+                    # Import here to avoid circular imports
+                    from . import main
+                    if hasattr(main, 'alert_escalations_total'):
+                        main.alert_escalations_total.labels(
+                            reason=escalation_reason,
+                            camera_id=camera_id
+                        ).inc()
+                except Exception as e:
+                    logger.debug(f"Failed to track escalation metric: {e}")
+
             return final_level
 
         except Exception as e:

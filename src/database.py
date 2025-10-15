@@ -11,8 +11,27 @@ from pathlib import Path
 import asyncpg
 
 from .config import settings
+import time
 
 logger = logging.getLogger(__name__)
+
+
+# Database query performance tracking
+@asynccontextmanager
+async def track_db_query(query_type: str):
+    """Context manager to track database query performance"""
+    start_time = time.time()
+    try:
+        yield
+    finally:
+        duration = time.time() - start_time
+        if settings.enable_metrics:
+            try:
+                from . import main
+                if hasattr(main, 'db_query_duration_seconds'):
+                    main.db_query_duration_seconds.labels(query_type=query_type).observe(duration)
+            except Exception as e:
+                logger.debug(f"Failed to track DB metric: {e}")
 
 
 class DatabaseManager:
@@ -144,41 +163,42 @@ class DatabaseManager:
         """
         import json
 
-        async with self.get_connection() as conn:
-            detection_id = await conn.fetchval(
-                """
-                INSERT INTO camera_detections (
+        async with track_db_query("store_detection"):
+            async with self.get_connection() as conn:
+                detection_id = await conn.fetchval(
+                    """
+                    INSERT INTO camera_detections (
+                        camera_id, request_id, detection_count, smoke_count, fire_count,
+                        max_confidence, avg_confidence, base_alert_level, final_alert_level,
+                        escalation_reason, detections, processing_time_ms, model_inference_time_ms,
+                        image_width, image_height, model_version, confidence_threshold,
+                        iou_threshold, detection_classes, source, n8n_workflow_id,
+                        n8n_execution_id, metadata
+                    )
+                    VALUES (
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                        $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
+                    )
+                    RETURNING id
+                    """,
                     camera_id, request_id, detection_count, smoke_count, fire_count,
                     max_confidence, avg_confidence, base_alert_level, final_alert_level,
-                    escalation_reason, detections, processing_time_ms, model_inference_time_ms,
-                    image_width, image_height, model_version, confidence_threshold,
-                    iou_threshold, detection_classes, source, n8n_workflow_id,
-                    n8n_execution_id, metadata
+                    escalation_reason,
+                    json.dumps(detections) if detections else None,
+                    processing_time_ms, model_inference_time_ms,
+                    image_width, image_height, model_version,
+                    confidence_threshold, iou_threshold,
+                    detection_classes,
+                    source, n8n_workflow_id, n8n_execution_id,
+                    json.dumps(metadata) if metadata else None
                 )
-                VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
-                )
-                RETURNING id
-                """,
-                camera_id, request_id, detection_count, smoke_count, fire_count,
-                max_confidence, avg_confidence, base_alert_level, final_alert_level,
-                escalation_reason,
-                json.dumps(detections) if detections else None,
-                processing_time_ms, model_inference_time_ms,
-                image_width, image_height, model_version,
-                confidence_threshold, iou_threshold,
-                detection_classes,
-                source, n8n_workflow_id, n8n_execution_id,
-                json.dumps(metadata) if metadata else None
-            )
 
-        logger.debug(
-            f"Stored detection {detection_id} for camera {camera_id} "
-            f"(base: {base_alert_level}, final: {final_alert_level}, "
-            f"detections: {detection_count}, confidence: {max_confidence:.3f})"
-        )
-        return detection_id
+            logger.debug(
+                f"Stored detection {detection_id} for camera {camera_id} "
+                f"(base: {base_alert_level}, final: {final_alert_level}, "
+                f"detections: {detection_count}, confidence: {max_confidence:.3f})"
+            )
+            return detection_id
 
     async def get_detections_since(
         self,

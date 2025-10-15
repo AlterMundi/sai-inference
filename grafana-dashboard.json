@@ -1,0 +1,140 @@
+{
+  "dashboard": {
+    "title": "SAI Inference Monitoring",
+    "tags": ["sai", "inference", "fire-detection"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Inference Requests Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(sai_inference_requests_total[5m])",
+            "legendFormat": "{{endpoint}} - {{status}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Detection Rate by Class",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(sai_detections_total[5m])",
+            "legendFormat": "{{class_name}} - {{camera_id}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Alert Level Distribution",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "sum by (alert_level) (sai_alert_levels_total)",
+            "legendFormat": "{{alert_level}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8}
+      },
+      {
+        "id": 4,
+        "title": "Active Cameras (24h)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sai_active_cameras"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 8, "x": 8, "y": 8}
+      },
+      {
+        "id": 5,
+        "title": "Total Alerts (24h)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sai_total_alerts_24h"
+          }
+        ],
+        "gridPos": {"h": 4, "w": 8, "x": 16, "y": 8}
+      },
+      {
+        "id": 6,
+        "title": "Inference Latency (p50, p95, p99)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(sai_inference_duration_seconds_bucket[5m]))",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(sai_inference_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(sai_inference_duration_seconds_bucket[5m]))",
+            "legendFormat": "p99"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+      },
+      {
+        "id": 7,
+        "title": "Image Dimensions Distribution",
+        "type": "heatmap",
+        "targets": [
+          {
+            "expr": "rate(sai_image_width_pixels_bucket[5m])",
+            "legendFormat": "Width"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+      },
+      {
+        "id": 8,
+        "title": "Camera Detection Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(sai_camera_detection_rate_sum[5m]) / rate(sai_camera_detection_rate_count[5m])",
+            "legendFormat": "{{camera_id}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}
+      },
+      {
+        "id": 9,
+        "title": "Database Query Performance",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(sai_db_query_duration_seconds_sum[5m]) / rate(sai_db_query_duration_seconds_count[5m])",
+            "legendFormat": "{{query_type}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}
+      },
+      {
+        "id": 10,
+        "title": "Alert Escalations",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(sai_alert_escalations_total[5m])",
+            "legendFormat": "{{reason}} - {{camera_id}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32}
+      }
+    ],
+    "refresh": "10s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    }
+  }
+}
