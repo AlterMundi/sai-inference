@@ -241,15 +241,22 @@ curl -X POST http://localhost:8888/api/v1/models/switch?model_name=sai_v2.1.pt
 
 ## Documentation
 
-### API Documentation
-All endpoints are documented in the codebase with comprehensive examples in the [docs/](docs/) directory:
+### Core Documentation
+All endpoints and internals are documented in the [docs/](docs/) directory:
 
+**Architecture & Internals**:
+- **[SERVICE_INITIALIZATION_FLOW.md](docs/SERVICE_INITIALIZATION_FLOW.md)** - Detailed service startup analysis (12 sections)
+- **[INITIALIZATION_DIAGRAM.md](docs/INITIALIZATION_DIAGRAM.md)** - Visual ASCII diagrams of initialization phases
+- **[INFERENCE_PROCEDURE.md](docs/INFERENCE_PROCEDURE.md)** - Step-by-step inference flow
+- **[DEFAULT_VALUES_FLOW.md](docs/DEFAULT_VALUES_FLOW.md)** - Configuration hierarchy and precedence
+
+**API Reference**:
 - **[API_USAGE_GUIDE.md](docs/API_USAGE_GUIDE.md)** - Comprehensive API usage examples
 - **[API_ARGUMENTS_REFERENCE.md](docs/API_ARGUMENTS_REFERENCE.md)** - Complete parameter reference
-- **[DATABASE_VALIDATION.md](docs/DATABASE_VALIDATION.md)** - Database schema and validation procedures
-- **[INFERENCE_PROCEDURE.md](docs/INFERENCE_PROCEDURE.md)** - Internal inference workflow
-- **[DEFAULT_VALUES_FLOW.md](docs/DEFAULT_VALUES_FLOW.md)** - Parameter precedence and defaults
 - **[EXAMPLE_OUTPUTS.md](docs/EXAMPLE_OUTPUTS.md)** - Sample API responses
+
+**Technical Deep Dives**:
+- **[Yolo-LetterBox-decision-tree.md](docs/Yolo-LetterBox-decision-tree.md)** - YOLO preprocessing internals
 
 For development guidance, see [CLAUDE.md](CLAUDE.md) which contains detailed architecture and operational procedures.
 
