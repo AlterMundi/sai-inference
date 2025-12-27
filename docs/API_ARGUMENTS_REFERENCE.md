@@ -1,7 +1,7 @@
 # API Call Arguments Reference - Based on Actual Code
 
-**Source**: Extracted from `/opt/sai-inference/src/main.py` and `/opt/sai-inference/src/models.py`
-**Date**: September 30, 2025
+**Source**: Extracted from `src/main.py` and `src/models.py`
+**Last Updated**: December 2025
 
 ## Overview
 
@@ -25,8 +25,8 @@ SAI Inference Service provides three primary inference endpoints with different 
 
 | Parameter | Type | Default | Range | Description | Code Location |
 |-----------|------|---------|-------|-------------|---------------|
-| `confidence_threshold` | float | 0.13 | 0.0-1.0 | Minimum confidence score to report detection. Production default: 0.13 | Lines 301, 372 |
-| `iou_threshold` | float | 0.4 | 0.0-1.0 | IoU threshold for Non-Maximum Suppression (removes overlapping boxes) | Lines 302, 373 |
+| `confidence_threshold` | float | 0.39 | 0.0-1.0 | Minimum confidence score to report detection. Production default: 0.39 | `src/config.py:30` |
+| `iou_threshold` | float | 0.1 | 0.0-1.0 | IoU threshold for Non-Maximum Suppression (removes overlapping boxes) | `src/config.py:31` |
 | `max_detections` | int | 100 | 1-1000 | Maximum number of detections to return per image | Lines 303, 374 |
 
 ### Enhanced Alert System (Optional)

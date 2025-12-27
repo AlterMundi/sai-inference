@@ -19,7 +19,7 @@ SAI Inference Service is a high-performance FastAPI-based REST API for fire and 
 7. **CLI Tool** (`sai-inference.sh`): Command-line wrapper for quick image analysis via API
 
 ### Model Specifications
-- **Model Format**: YOLOv8s architecture (39MB `last.pt` file)
+- **Model Format**: YOLOv8s architecture (~115MB `last.pt` file)
 - **Detection Classes**: 2 classes - `0`: smoke, `1`: fire
 - **Default Configuration**: Smoke-only detection (`SAI_DETECTION_CLASSES=[0]`) for wildfire early warning
 - **Input Resolution**: 864px optimized (configurable via `SAI_INPUT_SIZE`)
@@ -60,9 +60,6 @@ python run.py
 
 # Production with uvicorn
 uvicorn src.main:app --host 0.0.0.0 --port 8888
-
-# Docker deployment (experimental)
-docker-compose -f docker/docker-compose.yml up -d
 
 # SystemD service
 sudo systemctl start sai-inference
@@ -190,13 +187,13 @@ The service acts as a drop-in replacement for Ollama in n8n workflows. **All int
 
 ### PostgreSQL Database Configuration
 
-**Production Database**: `sai_dashboard` (shared with n8n services)
+**Production Database**: `sai_inference` (dedicated detection logging)
 **Table**: `camera_detections` (owned by `sai_user`)
 **Connection**: Async connection pool via asyncpg
 
 ```bash
 # Database URL format
-SAI_DATABASE_URL=postgresql://sai_user:password@localhost/sai_dashboard?sslmode=disable
+SAI_DATABASE_URL=postgresql://sai_user:password@localhost/sai_inference?sslmode=disable
 ```
 
 ### Database Schema Overview
@@ -286,7 +283,7 @@ SAI_DEVICE=cpu             # cpu/cuda/cuda:0 for GPU
 SAI_LOG_LEVEL=INFO         # DEBUG/INFO/WARNING/ERROR
 
 # Database Configuration
-SAI_DATABASE_URL=postgresql://sai_user:password@localhost/sai_dashboard?sslmode=disable
+SAI_DATABASE_URL=postgresql://sai_user:password@localhost/sai_inference?sslmode=disable
 
 # Model Configuration
 SAI_MODEL_DIR=models       # Model directory path

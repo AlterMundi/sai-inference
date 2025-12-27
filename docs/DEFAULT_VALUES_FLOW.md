@@ -9,7 +9,7 @@
 ## The Three-Tier Default System
 
 ### Tier 1: API Endpoint (main.py)
-**Location**: `/opt/sai-inference/src/main.py` lines 301-315
+**Location**: `src/main.py` (infer endpoint definition)
 
 ```python
 @app.post(f"{settings.api_prefix}/infer")
@@ -45,7 +45,7 @@ response = await inference_engine.infer(
 ---
 
 ### Tier 2: Inference Engine (inference.py)
-**Location**: `/opt/sai-inference/src/inference.py` lines 356-360
+**Location**: `src/inference.py` (infer method)
 
 ```python
 async def infer(
@@ -71,13 +71,13 @@ async def infer(
 ---
 
 ### Tier 3: Settings/Environment (config.py)
-**Location**: `/opt/sai-inference/src/config.py` lines 25-42
+**Location**: `src/config.py` lines 25-42
 
 ```python
 class Settings(BaseSettings):
     # Model Configuration
-    confidence_threshold: float = Field(default=0.13, alias="SAI_CONFIDENCE_THRESHOLD")
-    iou_threshold: float = Field(default=0.4, alias="SAI_IOU_THRESHOLD")
+    confidence_threshold: float = Field(default=0.39, alias="SAI_CONFIDENCE_THRESHOLD")
+    iou_threshold: float = Field(default=0.1, alias="SAI_IOU_THRESHOLD")
     input_size: Union[int, Tuple[int, int]] = Field(default=864, alias="SAI_INPUT_SIZE")
     max_detections: int = Field(default=100, alias="SAI_MAX_DETECTIONS")
 
@@ -124,10 +124,10 @@ curl -X POST http://localhost:8888/api/v1/infer \
 1. **API (main.py:301)**: `confidence_threshold = None` (default from `Form(None)`)
 2. **Inference (inference.py:357)**: `confidence = None or settings.confidence_threshold`
 3. **Settings (config.py:30)**:
-   - Checks `.env` for `SAI_CONFIDENCE`
+   - Checks `.env` for `SAI_CONFIDENCE_THRESHOLD`
    - If found: Uses `.env` value
-   - If not found: Uses `default=0.13`
-4. **YOLO**: Runs with `conf=0.13` (or `.env` value)
+   - If not found: Uses `default=0.39`
+4. **YOLO**: Runs with `conf=0.39` (or `.env` value)
 
 ---
 
@@ -159,8 +159,8 @@ curl -X POST http://localhost:8888/api/v1/infer \
 
 | Parameter | Hardcoded Default | .env Variable | Code Line |
 |-----------|-------------------|---------------|-----------|
-| `confidence_threshold` | 0.13 | `SAI_CONFIDENCE` | config.py:30 |
-| `iou_threshold` | 0.4 | `SAI_IOU_THRESHOLD` | config.py:31 |
+| `confidence_threshold` | 0.39 | `SAI_CONFIDENCE_THRESHOLD` | config.py:30 |
+| `iou_threshold` | 0.1 | `SAI_IOU_THRESHOLD` | config.py:31 |
 | `input_size` | 864 | `SAI_INPUT_SIZE` | config.py:34 |
 | `max_detections` | 100 | `SAI_MAX_DETECTIONS` | config.py:35 |
 | `default_detection_classes` | `[0]` | `SAI_DETECTION_CLASSES` | config.py:38-42 |

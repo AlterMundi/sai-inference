@@ -11,7 +11,7 @@ High-performance inference service for SAI fire/smoke detection, designed as a d
 - **Camera Analytics API** - Historical detection statistics and trends
 - **Model hot-swapping** without service restart
 - **Batch processing** for multiple images
-- **Docker & SystemD** deployment options
+- **SystemD** deployment with watchdog support
 - **Production-ready** with automated installation scripts
 
 ## Repository Structure
@@ -70,10 +70,10 @@ curl http://localhost:8888/api/v1/health
 curl -X POST http://localhost:8888/api/v1/infer \
   -F "file=@image.jpg"
 
-# With optimized parameters
+# With custom parameters (default is 0.39)
 curl -X POST http://localhost:8888/api/v1/infer \
   -F "file=@image.jpg" \
-  -F "confidence_threshold=0.13" \
+  -F "confidence_threshold=0.25" \
   -F "return_image=true"
 ```
 
@@ -81,7 +81,7 @@ curl -X POST http://localhost:8888/api/v1/infer \
 ```bash
 curl -X POST http://localhost:8888/api/v1/infer/base64 \
   -H "Content-Type: application/json" \
-  -d '{"image": "base64_encoded_image_data", "confidence_threshold": 0.13}'
+  -d '{"image": "base64_encoded_image_data", "confidence_threshold": 0.25}'
 ```
 
 ### Camera Analytics & Monitoring
