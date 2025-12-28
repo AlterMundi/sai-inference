@@ -237,46 +237,296 @@ Until this bug is fixed, **do not use the Duplicate feature** on workflows conta
 
 ---
 
-## Bug Reproduction - CONFIRMED (Dec 26, 2025)
+## Bug Reproduction - CONFIRMED (Dec 27, 2025)
 
-### ✅ Successfully Reproduced via UI Duplication
+### ✅ Reproducible Test Case (Clean Room)
 
-**Test workflow:** `Sai-daily-test` (ID: `Roic0RkCV7yVkvl1`)
+**Test Date:** December 27, 2025
+**n8n Version:** 1.123.5
 
-#### Steps Performed:
-1. Opened active workflow "Sai-daily-test" in n8n UI
-2. Used **Duplicate** feature from the menu
-3. Duplicate created as "Sai-daily-test copy" (ID: `o3bZQqk1OiHuRm6Y`)
-4. Duplicate was saved (active=false by default after duplication)
-5. Restarted n8n service
+#### Step 1: Create New Workflow with Webhook
 
-#### Before Restart:
+1. Created new workflow `Test-Webhook-Bug`
+2. Added Webhook node with custom path: `test-bug-reproduction`
+3. Activated the workflow
+
+**Database State After Step 1:**
+```sql
+-- workflow_entity
+id               | name             | active | activeVersionId
+-----------------+------------------+--------+--------------------------------------
+AY8Cig5S6wzsWFOW | Test-Webhook-Bug | t      | 98426fad-4e32-4b88-8332-ac8c0ec36b24
+
+-- workflow_history
+versionId                            | workflowId       | history_path
+-------------------------------------+------------------+-----------------------
+98426fad-4e32-4b88-8332-ac8c0ec36b24 | AY8Cig5S6wzsWFOW | test-bug-reproduction  ✓
+
+-- webhook_entity
+webhookPath           | workflowId       | name             | active
+----------------------+------------------+------------------+--------
+test-bug-reproduction | AY8Cig5S6wzsWFOW | Test-Webhook-Bug | t  ✓
 ```
-webhookPath                           | workflowId       | name           | active
---------------------------------------+------------------+----------------+--------
-8ecbf1c4-3bcd-4ead-8dec-3dde52f5b40f  | Roic0RkCV7yVkvl1 | Sai-daily-test | t
+
+#### Step 2: Duplicate the Workflow
+
+1. Used n8n UI menu → **Duplicate**
+2. Duplicate created as `Test-Webhook-Bug copy`
+3. Duplicate was created as **inactive** (expected behavior)
+
+**Database State After Step 2 - BUG VISIBLE:**
+```sql
+-- workflow_entity (NOTE: SAME activeVersionId!)
+id               | name                  | active | activeVersionId
+-----------------+-----------------------+--------+--------------------------------------
+AY8Cig5S6wzsWFOW | Test-Webhook-Bug      | t      | 98426fad-4e32-4b88-8332-ac8c0ec36b24
+01zK96fRNfHodYYC | Test-Webhook-Bug copy | f      | 98426fad-4e32-4b88-8332-ac8c0ec36b24  ← BUG!
+
+-- workflow_history (duplicate has its OWN entry with NEW path)
+versionId                            | workflowId       | history_path
+-------------------------------------+------------------+--------------------------------------
+98426fad-4e32-4b88-8332-ac8c0ec36b24 | AY8Cig5S6wzsWFOW | test-bug-reproduction  (original)
+34221a46-4cbd-47f4-80f4-d56ff0d4d0a0 | 01zK96fRNfHodYYC | 26f1da72-102c-4088-a836-ee104990ce83  (duplicate - NEW path)
 ```
 
-#### After Restart - BUG CONFIRMED:
+**🔴 THE BUG:** Duplicate's `activeVersionId` points to ORIGINAL's `workflow_history` entry, not its own!
+
+#### Step 3: Restart n8n
+
+```bash
+sudo systemctl restart n8n
 ```
-webhookPath                           | workflowId       | name                | active
---------------------------------------+------------------+---------------------+--------
-8ecbf1c4-3bcd-4ead-8dec-3dde52f5b40f  | o3bZQqk1OiHuRm6Y | Sai-daily-test copy | f  ← WRONG!
+
+**Database State After Restart - WEBHOOK HIJACKED:**
+```sql
+-- webhook_entity
+webhookPath           | workflowId       | name                  | active
+----------------------+------------------+-----------------------+--------
+test-bug-reproduction | 01zK96fRNfHodYYC | Test-Webhook-Bug copy | f  ← HIJACKED!
 ```
 
-**The INACTIVE duplicate has hijacked the ACTIVE original's webhook path!**
+**The INACTIVE duplicate has stolen the webhook from the ACTIVE original!**
 
-#### Node Definition Analysis:
-| Workflow | webhookId in Node Definition |
-|----------|------------------------------|
-| Original | `8ecbf1c4-3bcd-4ead-8dec-3dde52f5b40f` |
-| Duplicate | `8baa8a52-92ed-48ef-b39a-64cea5cf272b` ← **DIFFERENT!** |
+---
 
-The duplicate has a **completely different webhookId** in its node definition, yet n8n registered it with the **original's path** in webhook_entity.
+## Root Cause - CONFIRMED
 
-### Key Finding: pinData is NOT the cause
+### The Exact Bug Location
 
-Both workflows had **empty pinData** (`{}`), so the bug is NOT caused by cached webhook URLs in pinData. The root cause is elsewhere in n8n's duplication/activation logic.
+**File:** Workflow duplication logic (likely `packages/cli/src/workflows/workflows.controller.ts` or frontend)
+
+**Bug:** When duplicating a workflow, the `activeVersionId` field is **copied from the original** instead of being set to `null` or to the duplicate's own `workflow_history.versionId`.
+
+### Why This Causes Webhook Hijacking
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        DUPLICATION BUG FLOW                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  STEP 1: Original workflow active                                        │
+│  ┌──────────────────────┐     ┌──────────────────────┐                  │
+│  │ workflow_entity      │     │ workflow_history     │                  │
+│  │ id: ORIGINAL         │────▶│ versionId: AAA       │                  │
+│  │ activeVersionId: AAA │     │ path: "my-webhook"   │                  │
+│  └──────────────────────┘     └──────────────────────┘                  │
+│                                                                          │
+│  STEP 2: Duplicate created (BUG OCCURS HERE)                            │
+│  ┌──────────────────────┐     ┌──────────────────────┐                  │
+│  │ workflow_entity      │     │ workflow_history     │                  │
+│  │ id: DUPLICATE        │──┐  │ versionId: BBB       │  ← IGNORED!      │
+│  │ activeVersionId: AAA │  │  │ path: "new-uuid"     │                  │
+│  └──────────────────────┘  │  └──────────────────────┘                  │
+│                            │                                             │
+│                            │  ┌──────────────────────┐                  │
+│                            └─▶│ workflow_history     │  ← WRONG LINK!   │
+│                               │ versionId: AAA       │                  │
+│                               │ path: "my-webhook"   │  (ORIGINAL's)    │
+│                               └──────────────────────┘                  │
+│                                                                          │
+│  STEP 3: On restart, n8n activates DUPLICATE with ORIGINAL's path       │
+│  - Reads activeVersionId: AAA                                            │
+│  - Loads nodes from workflow_history AAA (ORIGINAL's nodes!)            │
+│  - Registers webhook "my-webhook" for DUPLICATE                          │
+│  - Upsert overwrites → ORIGINAL loses its webhook                        │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### This Explains ALL Previously Observed Symptoms
+
+| Symptom | Explanation |
+|---------|-------------|
+| Duplicate shows NEW webhookId in editor | `workflow_entity.nodes` has the new ID (frontend works correctly) |
+| Duplicate registers with ORIGINAL's path | `activeVersionId` points to original's `workflow_history` |
+| Bug only occurs after restart | Webhooks are registered from `activeVersion` during startup |
+| Inactive workflow hijacks active's webhook | Activation order + silent upsert = last one wins |
+| Database fixes don't persist | n8n re-registers from wrong `activeVersionId` on every restart |
+
+### Definitive Fix Required
+
+**In the duplication logic, change:**
+```typescript
+// CURRENT (BUGGY):
+duplicate.activeVersionId = original.activeVersionId;  // Copies wrong reference!
+
+// FIXED:
+duplicate.activeVersionId = null;  // Or: newWorkflowHistory.versionId
+```
+
+---
+
+## Fix Status - VERIFIED IN SOURCE CODE
+
+### Bug Location Identified
+
+**File:** `packages/frontend/editor-ui/src/app/components/DuplicateWorkflowDialog.vue`
+
+### Version Comparison
+
+**n8n@1.123.5 (BUGGY - our production):**
+```typescript
+// Lines 92-100
+const {
+    createdAt,
+    updatedAt,
+    usedCredentials,
+    id,
+    homeProject,
+    sharedWithProjects,
+    ...workflow  // ← activeVersionId COPIED TO DUPLICATE!
+} = await workflowsStore.fetchWorkflow(props.data.id);
+```
+
+**master (FIXED - PR #23113 + PR #23166):**
+```typescript
+// Lines 93-105
+const {
+    createdAt,
+    updatedAt,
+    usedCredentials,
+    id,
+    homeProject,
+    sharedWithProjects,
+    activeVersionId,  // ← NOW REMOVED ✓
+    activeVersion,    // ← NOW REMOVED ✓
+    active,           // ← NOW REMOVED ✓
+    ...workflow
+} = await workflowsStore.fetchWorkflow(props.data.id);
+```
+
+### Fix Details
+
+| Aspect | Details |
+|--------|---------|
+| **Primary Fix PR** | [#23113](https://github.com/n8n-io/n8n/pull/23113) |
+| **Commit** | `883c409b` |
+| **Date** | December 12, 2025 |
+| **Title** | "fix: Make sure duplicating workflows creates them as unpublished" |
+| **Author** | @dariacodes (Daria) |
+| **Secondary PR** | [#23166](https://github.com/n8n-io/n8n/pull/23166) (Dec 24, 2025) - Additional refinements |
+| **Fix** | Added `activeVersionId`, `activeVersion`, `active` to destructuring exclusion list |
+
+### Upgrade Recommendation
+
+**Upgrade to n8n >= 2.0.1** (first version after Dec 12 fix) to get the complete fix.
+
+Until then, the workaround is to **avoid using the Duplicate feature** on workflows with webhook triggers.
+
+---
+
+## Bug Lifecycle Investigation (Dec 27, 2025)
+
+### Complete Timeline
+
+| Date | Event | Details |
+|------|-------|---------|
+| **Nov 20, 2025** | Bug Introduced | PR #21202 added `activeVersionId` to workflow versioning |
+| **Dec 1, 2025** | Feature expanded | PR #22533 deprecated `workflow.active` field |
+| **Dec 5, 2025** | Feature expanded | PR #22805 added `activeVersionId` to broadcast events |
+| **Dec 8, 2025** | v2.0.0 Released | **Bug included in major release** |
+| **Dec 12, 2025** | Bug Fixed | PR #23113 explicitly fixes duplication issue |
+| **Dec 24, 2025** | Fix refined | PR #23166 adds additional fixes for sub-workflows |
+
+**Bug existed for: ~22 days (Nov 20 - Dec 12, 2025)**
+
+### Was the Fix Intentional?
+
+**YES** - The fix was explicitly intentional:
+
+1. **Same Author**: Daria (@dariacodes) authored both:
+   - PR #21202 (Nov 20) - Introduced `activeVersionId` field
+   - PR #23113 (Dec 12) - Fixed the duplication bug
+
+2. **Explicit Issue Reference**: PR #23113 closes internal issue "ADO-4533"
+
+3. **PR Description** explicitly states:
+   > "This PR addresses two issues when duplicating published workflows:
+   > 1. Frontend problem: Sending a create payload with all active fields set
+   > 2. Backend problem: Ignoring `active` and `activeVersionId` fields, but not `activeVersion`"
+
+### Related Community Issues
+
+Multiple community reports existed but were **not properly addressed**:
+
+| Issue | Date | Status | Relationship |
+|-------|------|--------|--------------|
+| [#2386](https://github.com/n8n-io/n8n/issues/2386) | Oct 2021 | Closed as "expected behavior" | Same webhook URL duplication symptom |
+| [#10836](https://github.com/n8n-io/n8n/issues/10836) | Sep 2024 | Closed as "Not Planned" | Outdated duplicate workflow execution |
+| [#11966](https://github.com/n8n-io/n8n/issues/11966) | Nov 2024 | Closed as "Not Planned" | Webhook UUID retention when copying |
+
+### Bug Introduction Analysis
+
+**PR #21202** (Nov 20, 2025) introduced the workflow versioning system with `activeVersionId`:
+
+```
+                     ┌─────────────────────────────────────────────────────┐
+                     │              BUG INTRODUCTION TIMELINE               │
+                     ├─────────────────────────────────────────────────────┤
+                     │                                                      │
+                     │  Nov 20     Dec 1      Dec 8      Dec 12    Dec 24  │
+                     │    │          │          │           │         │    │
+                     │    ▼          ▼          ▼           ▼         ▼    │
+                     │  ┌───┐     ┌───┐      ┌─────┐    ┌─────┐   ┌─────┐  │
+                     │  │PR │     │PR │      │v2.0 │    │ PR  │   │ PR  │  │
+                     │  │#21│     │#22│      │.0   │    │#231 │   │#231 │  │
+                     │  │202│     │533│      │     │    │13   │   │66   │  │
+                     │  └───┘     └───┘      └─────┘    └─────┘   └─────┘  │
+                     │    │                     │          │               │
+                     │    └─── BUG WINDOW ──────┘          │               │
+                     │    │      (22 days)      │          │               │
+                     │    │                     │          │               │
+                     │  BUG                v2.0.0        FIX              │
+                     │  INTRODUCED         SHIPPED       MERGED           │
+                     │                     WITH BUG                       │
+                     │                                                      │
+                     └─────────────────────────────────────────────────────┘
+```
+
+### Why v1.123.5 Has the Bug
+
+The workflow versioning feature with `activeVersionId` was backported/included in late v1.x releases:
+
+- **v1.123.5** (our production): Has `activeVersionId` field, bug present
+- **v2.0.0** (Dec 8, 2025): Bug still present (fix came 4 days later)
+- **v2.0.1+** (after Dec 12): Bug fixed
+
+### n8n v2.0 Context
+
+The `activeVersionId` field is central to n8n 2.0's new "Publish" workflow:
+- **Save**: Preserves edits without changing production
+- **Publish**: Explicitly pushes changes live
+- **Draft versions**: Allow testing before publishing
+
+This explains why the bug went unnoticed initially - the versioning feature was complex and the duplication edge case was missed.
+
+### Conclusion
+
+This was a **temporal regression bug** in the n8n v2.0 development cycle:
+1. Introduced Nov 20, 2025 during workflow versioning implementation
+2. Shipped in v2.0.0 on Dec 8, 2025
+3. Fixed 4 days later on Dec 12, 2025
+4. **Our production (v1.123.5) predates the fix but has the buggy versioning code**
 
 ### Failed Reproduction Methods (for reference)
 
