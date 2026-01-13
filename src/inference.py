@@ -71,8 +71,9 @@ class ModelManager:
             return None
             
         # Priority order: configured default > SAI models > any .pt file
+        # If default_model is "auto", skip to auto-detection logic
         default_model = settings.default_model
-        if default_model in available_models:
+        if default_model != "auto" and default_model in available_models:
             return default_model
             
         # Look for SAI/sai models
