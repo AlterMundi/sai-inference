@@ -6,7 +6,7 @@ aiofiles==24.1.0
 httpx==0.28.1
 
 # YOLO and Computer Vision
-ultralytics>=8.3.214  # YOLOv12 requires 8.3.214+
+ultralytics>=8.4.14  # YOLOv10/v11 E2ELoss requires 8.4+
 opencv-python==4.10.0.84
 Pillow==11.0.0
 numpy==1.26.4
