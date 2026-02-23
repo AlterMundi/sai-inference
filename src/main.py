@@ -344,7 +344,10 @@ def verify_api_key(api_key: Optional[str] = None) -> bool:
     """Verify API key if configured"""
     if settings.n8n_api_key is None:
         return True
-    return api_key == settings.n8n_api_key
+    if api_key is None:
+        return False
+    import secrets
+    return secrets.compare_digest(api_key, settings.n8n_api_key)
 
 
 async def download_image(url: str) -> bytes:
