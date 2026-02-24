@@ -237,7 +237,7 @@ class DetectionRecord(BaseModel):
     camera_id: str
     confidence: float
     detection_count: int
-    captured_at: datetime
+    captured_at: Optional[datetime] = None
     base_alert_level: str
     final_alert_level: str
     escalated: bool = False
@@ -248,7 +248,7 @@ class EscalationEvent(BaseModel):
     """Escalation event record"""
     id: int
     camera_id: str
-    captured_at: datetime
+    captured_at: Optional[datetime] = None
     final_alert_level: str
     escalation_reason: Optional[str] = None
     confidence: float

@@ -438,7 +438,7 @@ class AlertManager:
                     result = await conn.execute(
                         """
                         DELETE FROM camera_detections
-                        WHERE camera_id = $1 AND captured_at >= $2
+                        WHERE camera_id = $1 AND COALESCE(captured_at, created_at) >= $2
                         """,
                         camera_id, cutoff_time
                     )
@@ -487,7 +487,7 @@ class AlertManager:
                         COUNT(*) as count,
                         AVG(confidence) as avg_confidence
                     FROM camera_detections
-                    WHERE captured_at >= $1
+                    WHERE COALESCE(captured_at, created_at) >= $1
                     GROUP BY confidence_level
                     ORDER BY avg_confidence DESC
                     """,
@@ -501,9 +501,9 @@ class AlertManager:
                            COUNT(*) as detection_count,
                            MAX(confidence) as max_confidence,
                            AVG(confidence) as avg_confidence,
-                           MAX(captured_at) as last_detection
+                           MAX(COALESCE(captured_at, created_at)) as last_detection
                     FROM camera_detections
-                    WHERE captured_at >= $1
+                    WHERE COALESCE(captured_at, created_at) >= $1
                     GROUP BY camera_id
                     ORDER BY last_detection DESC
                     """,

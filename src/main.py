@@ -355,15 +355,14 @@ def verify_api_key(api_key: Optional[str] = None) -> bool:
     return secrets.compare_digest(api_key, settings.n8n_api_key)
 
 
-def parse_captured_at_from_metadata(cam_metadata: dict) -> datetime:
+def parse_captured_at_from_metadata(cam_metadata: dict) -> Optional[datetime]:
     """
     Extract and validate captured_at from camera metadata.
-    Falls back to current UTC time when metadata is absent (e.g. n8n proxy).
+    Returns None when metadata is absent (n8n proxy, direct API calls).
     """
     cap_time = cam_metadata.get('environment', {}).get('capture_time_utc')
     if not cap_time:
-        logger.warning("No capture_time_utc in metadata, falling back to server time")
-        return datetime.now(timezone.utc)
+        return None
 
     try:
         # Handle Z suffix -> UTC-aware datetime

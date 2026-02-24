@@ -118,12 +118,12 @@ class DatabaseManager:
                                 raise
 
                 # Create concurrent indexes (must be outside transaction)
+                # Expression index on COALESCE for queries that use fallback ordering
                 for idx_sql in [
-                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_captured_at ON camera_detections (captured_at)",
-                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_camera_captured ON camera_detections (camera_id, captured_at)",
+                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_effective_time ON camera_detections (COALESCE(captured_at, created_at))",
+                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_camera_effective_time ON camera_detections (camera_id, COALESCE(captured_at, created_at))",
                 ]:
                     try:
-                        # CONCURRENTLY requires autocommit (no transaction)
                         await self.pool.execute(idx_sql)
                     except Exception as e:
                         if "already exists" not in str(e):
@@ -135,17 +135,43 @@ class DatabaseManager:
                     for stmt in parse_sql_statements(migration_003):
                         await conn.execute(stmt)
 
-                # 004: Enforce NOT NULL
-                migration_004 = migrations_dir / '004_enforce_captured_at.sql'
-                if migration_004.exists():
-                    for stmt in parse_sql_statements(migration_004):
-                        try:
-                            await conn.execute(stmt)
-                        except Exception as e:
-                            if "already exists" not in str(e):
-                                raise
-
                 logger.info("captured_at migrations completed successfully")
+
+            # Ensure captured_at is nullable (undo migration 004 if it ran)
+            if has_captured_at:
+                is_nullable = await conn.fetchval(
+                    """
+                    SELECT is_nullable FROM information_schema.columns
+                    WHERE table_name = 'camera_detections' AND column_name = 'captured_at'
+                    """
+                )
+                if is_nullable == 'NO':
+                    logger.info("Dropping NOT NULL from captured_at (nullable by design)...")
+                    await conn.execute("ALTER TABLE camera_detections ALTER COLUMN captured_at DROP NOT NULL")
+                    await conn.execute("UPDATE camera_detections SET captured_at = NULL WHERE captured_at = created_at")
+
+            # Ensure expression indexes exist (replace old bare captured_at indexes)
+            has_effective_time_idx = await conn.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_detections_effective_time')"
+            )
+            if not has_effective_time_idx:
+                logger.info("Creating COALESCE expression indexes...")
+                # Drop old useless captured_at-only indexes
+                for old_idx in ['idx_detections_captured_at', 'idx_detections_camera_captured']:
+                    try:
+                        await self.pool.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {old_idx}")
+                    except Exception as e:
+                        logger.warning(f"Failed to drop old index {old_idx}: {e}")
+                # Create expression indexes matching COALESCE queries
+                for idx_sql in [
+                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_effective_time ON camera_detections (COALESCE(captured_at, created_at))",
+                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_camera_effective_time ON camera_detections (camera_id, COALESCE(captured_at, created_at))",
+                ]:
+                    try:
+                        await self.pool.execute(idx_sql)
+                    except Exception as e:
+                        if "already exists" not in str(e):
+                            logger.warning(f"Expression index creation failed: {e}")
 
     async def close(self):
         """Close database connection pool"""
@@ -166,7 +192,7 @@ class DatabaseManager:
         self,
         camera_id: str,
         request_id: str,
-        captured_at: datetime,
+        captured_at: Optional[datetime],
         detection_count: int,
         smoke_count: int,
         fire_count: int,
@@ -195,7 +221,7 @@ class DatabaseManager:
         Args:
             camera_id: Camera identifier
             request_id: Unique request identifier
-            captured_at: Actual capture time from the camera node (UTC)
+            captured_at: Actual capture time from camera node (UTC), or None if no metadata
             detection_count: Total number of detections
             smoke_count: Number of smoke detections
             fire_count: Number of fire detections
@@ -272,11 +298,12 @@ class DatabaseManager:
         async with self.get_connection() as conn:
             rows = await conn.fetch(
                 """
-                SELECT id, camera_id, max_confidence, detection_count, captured_at, metadata
+                SELECT id, camera_id, max_confidence, detection_count,
+                       COALESCE(captured_at, created_at) as captured_at, metadata
                 FROM camera_detections
                 WHERE camera_id = $1
-                  AND captured_at >= $2
-                ORDER BY captured_at DESC
+                  AND COALESCE(captured_at, created_at) >= $2
+                ORDER BY COALESCE(captured_at, created_at) DESC
                 """,
                 camera_id, cutoff_time
             )
@@ -299,7 +326,7 @@ class DatabaseManager:
                 FROM camera_detections
                 WHERE camera_id = $1
                   AND max_confidence >= $2
-                  AND captured_at >= $3
+                  AND COALESCE(captured_at, created_at) >= $3
                 """,
                 camera_id, min_confidence, cutoff_time
             )
@@ -320,7 +347,7 @@ class DatabaseManager:
                 SELECT MAX(max_confidence)
                 FROM camera_detections
                 WHERE camera_id = $1
-                  AND captured_at >= $2
+                  AND COALESCE(captured_at, created_at) >= $2
                 """,
                 camera_id, cutoff_time
             )
@@ -335,7 +362,7 @@ class DatabaseManager:
             result = await conn.execute(
                 """
                 DELETE FROM camera_detections
-                WHERE captured_at < $1
+                WHERE COALESCE(captured_at, created_at) < $1
                 """,
                 cutoff_time
             )
@@ -357,10 +384,10 @@ class DatabaseManager:
                     COUNT(*) as total_detections,
                     AVG(max_confidence) as avg_confidence,
                     MAX(max_confidence) as max_confidence,
-                    MAX(captured_at) as last_detection
+                    MAX(COALESCE(captured_at, created_at)) as last_detection
                 FROM camera_detections
                 WHERE camera_id = $1
-                  AND captured_at >= $2
+                  AND COALESCE(captured_at, created_at) >= $2
                 """,
                 camera_id, cutoff_time
             )
@@ -391,15 +418,15 @@ class DatabaseManager:
                 """
                 SELECT
                     camera_id,
-                    MAX(captured_at) as last_detection,
+                    MAX(COALESCE(captured_at, created_at)) as last_detection,
                     COUNT(*) as detection_count_24h,
                     (SELECT final_alert_level
                      FROM camera_detections cd2
                      WHERE cd2.camera_id = cd1.camera_id
-                     ORDER BY captured_at DESC
+                     ORDER BY COALESCE(cd2.captured_at, cd2.created_at) DESC
                      LIMIT 1) as last_alert_level
                 FROM camera_detections cd1
-                WHERE captured_at >= $1
+                WHERE COALESCE(captured_at, created_at) >= $1
                 GROUP BY camera_id
                 ORDER BY last_detection DESC
                 """,
@@ -421,29 +448,31 @@ class DatabaseManager:
             if min_confidence is not None:
                 rows = await conn.fetch(
                     """
-                    SELECT id, camera_id, max_confidence as confidence, detection_count, captured_at,
+                    SELECT id, camera_id, max_confidence as confidence, detection_count,
+                           COALESCE(captured_at, created_at) as captured_at,
                            base_alert_level, final_alert_level,
                            (base_alert_level != final_alert_level) as escalated,
                            escalation_reason
                     FROM camera_detections
                     WHERE camera_id = $1
-                      AND captured_at >= $2
+                      AND COALESCE(captured_at, created_at) >= $2
                       AND max_confidence >= $3
-                    ORDER BY captured_at DESC
+                    ORDER BY COALESCE(captured_at, created_at) DESC
                     """,
                     camera_id, cutoff_time, min_confidence
                 )
             else:
                 rows = await conn.fetch(
                     """
-                    SELECT id, camera_id, max_confidence as confidence, detection_count, captured_at,
+                    SELECT id, camera_id, max_confidence as confidence, detection_count,
+                           COALESCE(captured_at, created_at) as captured_at,
                            base_alert_level, final_alert_level,
                            (base_alert_level != final_alert_level) as escalated,
                            escalation_reason
                     FROM camera_detections
                     WHERE camera_id = $1
-                      AND captured_at >= $2
-                    ORDER BY captured_at DESC
+                      AND COALESCE(captured_at, created_at) >= $2
+                    ORDER BY COALESCE(captured_at, created_at) DESC
                     """,
                     camera_id, cutoff_time
                 )
@@ -462,25 +491,29 @@ class DatabaseManager:
             if camera_id:
                 rows = await conn.fetch(
                     """
-                    SELECT id, camera_id, captured_at, final_alert_level,
+                    SELECT id, camera_id,
+                           COALESCE(captured_at, created_at) as captured_at,
+                           final_alert_level,
                            escalation_reason, max_confidence as confidence
                     FROM camera_detections
                     WHERE camera_id = $1
-                      AND captured_at >= $2
+                      AND COALESCE(captured_at, created_at) >= $2
                       AND base_alert_level != final_alert_level
-                    ORDER BY captured_at DESC
+                    ORDER BY COALESCE(captured_at, created_at) DESC
                     """,
                     camera_id, cutoff_time
                 )
             else:
                 rows = await conn.fetch(
                     """
-                    SELECT id, camera_id, captured_at, final_alert_level,
+                    SELECT id, camera_id,
+                           COALESCE(captured_at, created_at) as captured_at,
+                           final_alert_level,
                            escalation_reason, max_confidence as confidence
                     FROM camera_detections
-                    WHERE captured_at >= $1
+                    WHERE COALESCE(captured_at, created_at) >= $1
                       AND base_alert_level != final_alert_level
-                    ORDER BY captured_at DESC
+                    ORDER BY COALESCE(captured_at, created_at) DESC
                     """,
                     cutoff_time
                 )
@@ -497,13 +530,14 @@ class DatabaseManager:
             if camera_id:
                 rows = await conn.fetch(
                     """
-                    SELECT id, camera_id, max_confidence as confidence, detection_count, captured_at,
+                    SELECT id, camera_id, max_confidence as confidence, detection_count,
+                           COALESCE(captured_at, created_at) as captured_at,
                            base_alert_level, final_alert_level,
                            (base_alert_level != final_alert_level) as escalated,
                            escalation_reason
                     FROM camera_detections
                     WHERE camera_id = $1
-                    ORDER BY captured_at DESC
+                    ORDER BY COALESCE(captured_at, created_at) DESC
                     LIMIT $2
                     """,
                     camera_id, limit
@@ -511,12 +545,13 @@ class DatabaseManager:
             else:
                 rows = await conn.fetch(
                     """
-                    SELECT id, camera_id, max_confidence as confidence, detection_count, captured_at,
+                    SELECT id, camera_id, max_confidence as confidence, detection_count,
+                           COALESCE(captured_at, created_at) as captured_at,
                            base_alert_level, final_alert_level,
                            (base_alert_level != final_alert_level) as escalated,
                            escalation_reason
                     FROM camera_detections
-                    ORDER BY captured_at DESC
+                    ORDER BY COALESCE(captured_at, created_at) DESC
                     LIMIT $1
                     """,
                     limit
@@ -539,19 +574,19 @@ class DatabaseManager:
                     """
                     SELECT final_alert_level, COUNT(*) as count
                     FROM camera_detections
-                    WHERE camera_id = $1 AND captured_at >= $2
+                    WHERE camera_id = $1 AND COALESCE(captured_at, created_at) >= $2
                     GROUP BY final_alert_level
                     """,
                     camera_id, cutoff_time
                 )
 
                 total_alerts = await conn.fetchval(
-                    "SELECT COUNT(*) FROM camera_detections WHERE camera_id = $1 AND captured_at >= $2",
+                    "SELECT COUNT(*) FROM camera_detections WHERE camera_id = $1 AND COALESCE(captured_at, created_at) >= $2",
                     camera_id, cutoff_time
                 )
 
                 escalated_count = await conn.fetchval(
-                    "SELECT COUNT(*) FROM camera_detections WHERE camera_id = $1 AND captured_at >= $2 AND base_alert_level != final_alert_level",
+                    "SELECT COUNT(*) FROM camera_detections WHERE camera_id = $1 AND COALESCE(captured_at, created_at) >= $2 AND base_alert_level != final_alert_level",
                     camera_id, cutoff_time
                 )
 
@@ -561,24 +596,24 @@ class DatabaseManager:
                     """
                     SELECT final_alert_level, COUNT(*) as count
                     FROM camera_detections
-                    WHERE captured_at >= $1
+                    WHERE COALESCE(captured_at, created_at) >= $1
                     GROUP BY final_alert_level
                     """,
                     cutoff_time
                 )
 
                 total_alerts = await conn.fetchval(
-                    "SELECT COUNT(*) FROM camera_detections WHERE captured_at >= $1",
+                    "SELECT COUNT(*) FROM camera_detections WHERE COALESCE(captured_at, created_at) >= $1",
                     cutoff_time
                 )
 
                 escalated_count = await conn.fetchval(
-                    "SELECT COUNT(*) FROM camera_detections WHERE captured_at >= $1 AND base_alert_level != final_alert_level",
+                    "SELECT COUNT(*) FROM camera_detections WHERE COALESCE(captured_at, created_at) >= $1 AND base_alert_level != final_alert_level",
                     cutoff_time
                 )
 
                 cameras_active = await conn.fetchval(
-                    "SELECT COUNT(DISTINCT camera_id) FROM camera_detections WHERE captured_at >= $1",
+                    "SELECT COUNT(DISTINCT camera_id) FROM camera_detections WHERE COALESCE(captured_at, created_at) >= $1",
                     cutoff_time
                 )
 
@@ -608,7 +643,7 @@ class DatabaseManager:
                     SELECT escalation_reason, COUNT(*) as count
                     FROM camera_detections
                     WHERE camera_id = $1
-                      AND captured_at >= $2
+                      AND COALESCE(captured_at, created_at) >= $2
                       AND base_alert_level != final_alert_level
                     GROUP BY escalation_reason
                     """,
@@ -620,7 +655,7 @@ class DatabaseManager:
                     SELECT camera_id, COUNT(*) as count
                     FROM camera_detections
                     WHERE camera_id = $1
-                      AND captured_at >= $2
+                      AND COALESCE(captured_at, created_at) >= $2
                       AND base_alert_level != final_alert_level
                     GROUP BY camera_id
                     """,
@@ -628,12 +663,12 @@ class DatabaseManager:
                 )
 
                 total_escalations = await conn.fetchval(
-                    "SELECT COUNT(*) FROM camera_detections WHERE camera_id = $1 AND captured_at >= $2 AND base_alert_level != final_alert_level",
+                    "SELECT COUNT(*) FROM camera_detections WHERE camera_id = $1 AND COALESCE(captured_at, created_at) >= $2 AND base_alert_level != final_alert_level",
                     camera_id, cutoff_time
                 )
 
                 avg_confidence = await conn.fetchval(
-                    "SELECT AVG(max_confidence) FROM camera_detections WHERE camera_id = $1 AND captured_at >= $2 AND base_alert_level != final_alert_level",
+                    "SELECT AVG(max_confidence) FROM camera_detections WHERE camera_id = $1 AND COALESCE(captured_at, created_at) >= $2 AND base_alert_level != final_alert_level",
                     camera_id, cutoff_time
                 )
             else:
@@ -641,7 +676,7 @@ class DatabaseManager:
                     """
                     SELECT escalation_reason, COUNT(*) as count
                     FROM camera_detections
-                    WHERE captured_at >= $1 AND base_alert_level != final_alert_level
+                    WHERE COALESCE(captured_at, created_at) >= $1 AND base_alert_level != final_alert_level
                     GROUP BY escalation_reason
                     """,
                     cutoff_time
@@ -651,19 +686,19 @@ class DatabaseManager:
                     """
                     SELECT camera_id, COUNT(*) as count
                     FROM camera_detections
-                    WHERE captured_at >= $1 AND base_alert_level != final_alert_level
+                    WHERE COALESCE(captured_at, created_at) >= $1 AND base_alert_level != final_alert_level
                     GROUP BY camera_id
                     """,
                     cutoff_time
                 )
 
                 total_escalations = await conn.fetchval(
-                    "SELECT COUNT(*) FROM camera_detections WHERE captured_at >= $1 AND base_alert_level != final_alert_level",
+                    "SELECT COUNT(*) FROM camera_detections WHERE COALESCE(captured_at, created_at) >= $1 AND base_alert_level != final_alert_level",
                     cutoff_time
                 )
 
                 avg_confidence = await conn.fetchval(
-                    "SELECT AVG(max_confidence) FROM camera_detections WHERE captured_at >= $1 AND base_alert_level != final_alert_level",
+                    "SELECT AVG(max_confidence) FROM camera_detections WHERE COALESCE(captured_at, created_at) >= $1 AND base_alert_level != final_alert_level",
                     cutoff_time
                 )
 
