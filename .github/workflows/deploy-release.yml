@@ -8,22 +8,15 @@ on:
 jobs:
   deploy:
     runs-on: self-hosted
-    env:
-      SAI_HOME: ${{ vars.SAI_HOME }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy source
-        run: cp -a src/ requirements.txt run.py $SAI_HOME/
-
-      - name: Install dependencies
-        run: $SAI_HOME/venv/bin/pip install --quiet -r $SAI_HOME/requirements.txt
-
-      - name: Restart service
-        run: sudo -n /usr/local/bin/sai-inference-restart
+      - name: Deploy and restart
+        run: sudo -n /usr/local/bin/sai-inference-deploy "$GITHUB_WORKSPACE"
 
       - name: Health check
         run: |
+          sleep 5
           for i in 1 2 3 4 5; do
             if curl -sf http://localhost:8888/api/v1/health \
               | python3 -c "import sys,json; assert json.load(sys.stdin)['status']=='healthy'"; then
@@ -34,5 +27,5 @@ jobs:
             sleep 5
           done
           echo "Health check failed"
-          journalctl -u sai-inference --no-pager -n 30
+          sudo journalctl -u sai-inference --no-pager -n 30
           exit 1
