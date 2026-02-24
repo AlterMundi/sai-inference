@@ -358,14 +358,12 @@ def verify_api_key(api_key: Optional[str] = None) -> bool:
 def parse_captured_at_from_metadata(cam_metadata: dict) -> datetime:
     """
     Extract and validate captured_at from camera metadata.
-    Raises HTTPException(422) if missing or invalid.
+    Falls back to current UTC time when metadata is absent (e.g. n8n proxy).
     """
     cap_time = cam_metadata.get('environment', {}).get('capture_time_utc')
     if not cap_time:
-        raise HTTPException(
-            status_code=422,
-            detail="metadata.environment.capture_time_utc is required"
-        )
+        logger.warning("No capture_time_utc in metadata, falling back to server time")
+        return datetime.now(timezone.utc)
 
     try:
         # Handle Z suffix -> UTC-aware datetime
