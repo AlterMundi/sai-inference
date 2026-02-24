@@ -1,21 +1,21 @@
 # Core dependencies
-fastapi==0.118.0
-uvicorn[standard]==0.37.0
-python-multipart==0.0.20
-aiofiles==24.1.0
-httpx==0.28.1
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart>=0.0.6
+pillow>=10.0.0
+aiofiles>=23.0.0
+websockets==13.1
 
 # YOLO and Computer Vision
-ultralytics>=8.3.214  # YOLOv12 requires 8.3.214+
+ultralytics==8.3.31
 opencv-python==4.10.0.84
-Pillow==11.0.0
 numpy==1.26.4
 torch>=2.0.0
 torchvision>=0.15.0
 
 # Data handling
-pydantic==2.11.9
-pydantic-settings==2.11.0
+pydantic==2.9.2
+pydantic-settings==2.6.0
 python-json-logger==2.0.7
 PyYAML==6.0.2
 
@@ -24,14 +24,11 @@ prometheus-client==0.21.0
 psutil==6.1.0
 systemd-python==235
 
-# Database (Enhanced Alert System)
-asyncpg==0.30.0
-sqlalchemy==2.0.43
-
 
 # Testing
 pytest==8.3.3
 pytest-asyncio==0.24.0
+httpx==0.27.2
 
 # Development
 python-dotenv==1.0.1

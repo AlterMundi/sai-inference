@@ -15,6 +15,7 @@ import logging
 from datetime import datetime
 
 from .config import settings
+from .storage import image_storage
 from .models import (
     Detection, BoundingBox, DetectionClass,
     InferenceResponse, ModelInfo
@@ -71,9 +72,8 @@ class ModelManager:
             return None
             
         # Priority order: configured default > SAI models > any .pt file
-        # If default_model is "auto", skip to auto-detection logic
         default_model = settings.default_model
-        if default_model != "auto" and default_model in available_models:
+        if default_model in available_models:
             return default_model
             
         # Look for SAI/sai models
@@ -346,8 +346,6 @@ class InferenceEngine:
         show_labels: bool = True,
         show_confidence: bool = True,
         line_width: Optional[int] = None,
-        # Enhanced Alert System
-        camera_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> InferenceResponse:
         """Run inference on an image"""
@@ -383,6 +381,30 @@ class InferenceEngine:
             else:
                 # numpy array (direct path)
                 image = image_data
+            
+            # Store raw image before processing (content-addressed)
+            image_hash = None
+            image_path = None
+            try:
+                if isinstance(image_data, str):
+                    if "," in image_data:
+                        image_data_clean = image_data.split(",")[1]
+                    else:
+                        image_data_clean = image_data
+                    raw_bytes = base64.b64decode(image_data_clean)
+                elif isinstance(image_data, bytes):
+                    raw_bytes = image_data
+                else:
+                    # numpy array - encode to JPEG for storage
+                    _, buffer = cv2.imencode('.jpg', image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                    raw_bytes = buffer.tobytes()
+                
+                storage_result = await image_storage.store(raw_bytes)
+                image_hash = storage_result.hash
+                image_path = storage_result.path
+                logger.info(f"Stored raw image: {image_hash[:16]}... dedup={storage_result.is_duplicate}")
+            except Exception as e:
+                logger.warning(f"Image storage failed (non-fatal): {e}")
             
             # Get original dimensions for coordinate scaling
             if hasattr(image, 'size'):
@@ -517,70 +539,7 @@ class InferenceEngine:
                     logger.error(traceback.format_exc())
             
             processing_time = (time.time() - start_time) * 1000
-
-            # Determine detection mode and active classes
-            from .config import settings as config_settings
-            actual_detection_classes = detection_classes or config_settings.default_detection_classes
-            if actual_detection_classes == [0]:
-                detection_mode = "smoke-only"
-                active_classes = ["smoke"]
-            elif actual_detection_classes == [1]:
-                detection_mode = "fire-only"
-                active_classes = ["fire"]
-            elif actual_detection_classes == [0, 1] or actual_detection_classes is None:
-                detection_mode = "both"
-                active_classes = ["smoke", "fire"]
-            else:
-                detection_mode = "custom"
-                active_classes = ["smoke" if 0 in actual_detection_classes else None, "fire" if 1 in actual_detection_classes else None]
-                active_classes = [c for c in active_classes if c is not None]
-
-            # Build inference context for enhanced logging
-            context = None
-            if camera_id:
-                from .inference_context import InferenceContext
-
-                smoke_count = sum(1 for d in detections if d.class_name == DetectionClass.SMOKE)
-                fire_count = sum(1 for d in detections if d.class_name == DetectionClass.FIRE)
-                max_conf = max((d.confidence for d in detections), default=0.0)
-                avg_conf = np.mean([d.confidence for d in detections]) if detections else None
-
-                # Extract n8n context from metadata if present
-                n8n_workflow_id = metadata.get('n8n_workflow_id') if metadata else None
-                n8n_execution_id = metadata.get('n8n_execution_id') if metadata else None
-                source = metadata.get('source', 'api-direct') if metadata else 'api-direct'
-
-                context = InferenceContext(
-                    request_id=request_id,
-                    camera_id=camera_id,
-                    detections=detections,
-                    detection_count=len(detections),
-                    smoke_count=smoke_count,
-                    fire_count=fire_count,
-                    max_confidence=max_conf,
-                    avg_confidence=float(avg_conf) if avg_conf is not None else None,
-                    processing_time_ms=processing_time,
-                    model_inference_time_ms=None,  # TODO: Track separate model time
-                    image_width=original_w,
-                    image_height=original_h,
-                    model_version=self.model_manager.current_model_name or "unknown",
-                    confidence_threshold=confidence,
-                    iou_threshold=iou,
-                    detection_classes=actual_detection_classes,
-                    source=source,
-                    n8n_workflow_id=n8n_workflow_id,
-                    n8n_execution_id=n8n_execution_id,
-                    metadata=metadata or {}
-                )
-
-            # Calculate alert level using enhanced alert manager
-            from .alert_manager import alert_manager
-            alert_level = await alert_manager.determine_alert_level(
-                detections=detections,
-                camera_id=camera_id,
-                context=context
-            )
-
+            
             response = InferenceResponse(
                 request_id=request_id,
                 timestamp=datetime.utcnow(),
@@ -591,10 +550,8 @@ class InferenceEngine:
                 has_fire=has_fire,
                 has_smoke=has_smoke,
                 confidence_scores=confidence_scores,
-                alert_level=alert_level,
-                detection_mode=detection_mode,
-                active_classes=active_classes,
-                camera_id=camera_id,  # Echo back for n8n verification
+                image_hash=image_hash,
+                image_path=image_path,
                 annotated_image=annotated_image_b64,
                 version=self.model_manager.current_model_name or "unknown",
                 metadata=metadata or {}

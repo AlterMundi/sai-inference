@@ -100,7 +100,6 @@ class InferenceRequest(BaseModel):
     
     # Processing Options
     webhook_url: Optional[str] = Field(None, description="Webhook URL for async processing")
-    camera_id: Optional[str] = Field(None, description="Camera identifier for enhanced temporal alert tracking")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
@@ -112,22 +111,18 @@ class InferenceResponse(BaseModel):
     image_size: Dict[str, int]  # {"width": int, "height": int}
     detections: List[Detection]
     detection_count: int
-
-    # Wildfire Detection Results
     has_fire: bool
     has_smoke: bool
     confidence_scores: Dict[str, float]  # Average confidence per class
-
-    # Enhanced Wildfire Alert System
-    alert_level: Optional[str] = Field(None, description="Wildfire alert level: none, low, high, critical")
-    detection_mode: Optional[str] = Field(None, description="Detection mode: smoke-only, fire-only, both")
-    active_classes: Optional[List[str]] = Field(None, description="Currently active detection classes")
-    camera_id: Optional[str] = Field(None, description="Camera identifier (echo back for n8n verification)")
-
+    
+    # Image storage (content-addressed)
+    image_hash: Optional[str] = Field(None, description="SHA256 hash of raw input image")
+    image_path: Optional[str] = Field(None, description="Storage path (filesystem or IPFS)")
+    
     annotated_image: Optional[str] = Field(None, description="Base64 encoded annotated image")
     version: str
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
-
+    
     model_config = ConfigDict(use_enum_values=True, protected_namespaces=())
 
 
@@ -139,7 +134,6 @@ class BatchInferenceRequest(BaseModel):
     max_detections_per_image: Optional[int] = Field(None, ge=1, le=1000)
     return_images: bool = Field(False)
     parallel_processing: bool = Field(True)
-    camera_ids: Optional[List[Optional[str]]] = Field(None, description="Camera IDs for each image (same order as images)")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
@@ -188,22 +182,24 @@ class WebhookPayload(BaseModel):
     data: InferenceResponse
     alert_level: Optional[str] = None  # "low", "medium", "high", "critical"
     
-    async def determine_alert_level(self, camera_id: Optional[str] = None) -> str:
-        """
-        Determine alert level using enhanced alert manager
-
-        Args:
-            camera_id: Optional camera identifier for temporal tracking
-
-        Returns:
-            Alert level: "none", "low", "high", "critical"
-        """
-        from .alert_manager import alert_manager
-
-        return await alert_manager.determine_alert_level(
-            detections=self.data.detections,
-            camera_id=camera_id
-        )
+    def determine_alert_level(self) -> str:
+        """Determine alert level based on detections"""
+        if not self.data.detections:
+            return "none"
+        
+        fire_count = sum(1 for d in self.data.detections if d.class_name == "fire")
+        smoke_count = sum(1 for d in self.data.detections if d.class_name == "smoke")
+        max_confidence = max((d.confidence for d in self.data.detections), default=0)
+        
+        if fire_count > 2 or (fire_count > 0 and max_confidence > 0.8):
+            return "critical"
+        elif fire_count > 0:
+            return "high"
+        elif smoke_count > 2 or (smoke_count > 0 and max_confidence > 0.7):
+            return "medium"
+        elif smoke_count > 0:
+            return "low"
+        return "none"
 
 
 class ErrorResponse(BaseModel):
@@ -212,60 +208,3 @@ class ErrorResponse(BaseModel):
     detail: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     request_id: Optional[str] = None
-
-
-# Camera Analytics Models
-class CameraStats(BaseModel):
-    """Camera detection statistics"""
-    camera_id: str
-    total_detections: int
-    avg_confidence: Optional[float] = None
-    max_confidence: Optional[float] = None
-    last_detection: Optional[str] = None
-
-
-class DetectionRecord(BaseModel):
-    """Historical detection record"""
-    id: int
-    camera_id: str
-    confidence: float
-    detection_count: int
-    created_at: datetime
-    final_alert_level: str
-    escalated: bool
-    escalation_reason: Optional[str] = None
-
-
-class CameraListItem(BaseModel):
-    """Camera list item with activity info"""
-    camera_id: str
-    last_detection: Optional[datetime] = None
-    detection_count_24h: int
-    last_alert_level: Optional[str] = None
-
-
-class EscalationEvent(BaseModel):
-    """Escalation event record"""
-    id: int
-    camera_id: str
-    created_at: datetime
-    final_alert_level: str
-    escalation_reason: str
-    confidence: float
-
-
-# Alert History Models
-class AlertSummary(BaseModel):
-    """Alert summary statistics"""
-    total_alerts: int
-    by_level: Dict[str, int]  # {"none": 10, "low": 5, "high": 2, "critical": 1}
-    escalation_rate: float  # Percentage of alerts that escalated
-    cameras_active: int
-
-
-class EscalationStats(BaseModel):
-    """Escalation statistics"""
-    total_escalations: int
-    by_reason: Dict[str, int]  # {"persistence_low": 5, "persistence_high": 3}
-    by_camera: Dict[str, int]
-    avg_confidence: float

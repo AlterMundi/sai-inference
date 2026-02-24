@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # n8n Integration
     n8n_api_key: Optional[str] = Field(default=None, env="SAI_API_KEY")
     allowed_origins: List[str] = Field(
-        default=["*"],
+        default=[],
         env="SAI_ALLOWED_ORIGINS"
     )
 
