@@ -1,20 +1,17 @@
 """
 SAI Inference Service - FastAPI Application
 """
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, BackgroundTasks, Form, Response
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 import uvicorn
 import uuid
 import logging
 import psutil
-import aiofiles
 import httpx
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, List
 import base64
-import io
 import asyncio
 import os
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
@@ -23,8 +20,7 @@ from .config import settings
 from .models import (
     InferenceRequest, InferenceResponse,
     BatchInferenceRequest, BatchInferenceResponse,
-    HealthCheck, ModelInfo, ErrorResponse,
-    WebhookPayload,
+    HealthCheck, WebhookPayload,
     CameraStats, DetectionRecord, CameraListItem, EscalationEvent,
     AlertSummary, EscalationStats
 )

@@ -208,3 +208,63 @@ class ErrorResponse(BaseModel):
     detail: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     request_id: Optional[str] = None
+
+
+# ============================================================================
+# Camera Analytics & Alert History Models
+# ============================================================================
+
+class CameraListItem(BaseModel):
+    """Camera with recent activity summary"""
+    camera_id: str
+    last_detection: Optional[datetime] = None
+    detection_count_24h: int = 0
+    last_alert_level: Optional[str] = None
+
+
+class CameraStats(BaseModel):
+    """Detection statistics for a specific camera"""
+    camera_id: str
+    total_detections: int = 0
+    avg_confidence: Optional[float] = None
+    max_confidence: Optional[float] = None
+    last_detection: Optional[str] = None
+
+
+class DetectionRecord(BaseModel):
+    """Single detection record with alert metadata"""
+    id: int
+    camera_id: str
+    confidence: float
+    detection_count: int
+    created_at: datetime
+    base_alert_level: str
+    final_alert_level: str
+    escalated: bool = False
+    escalation_reason: Optional[str] = None
+
+
+class EscalationEvent(BaseModel):
+    """Escalation event record"""
+    id: int
+    camera_id: str
+    created_at: datetime
+    final_alert_level: str
+    escalation_reason: Optional[str] = None
+    confidence: float
+
+
+class AlertSummary(BaseModel):
+    """Aggregated alert statistics"""
+    total_alerts: int = 0
+    by_level: Dict[str, int] = Field(default_factory=dict)
+    escalation_rate: float = 0.0
+    cameras_active: int = 0
+
+
+class EscalationStats(BaseModel):
+    """Escalation statistics"""
+    total_escalations: int = 0
+    by_reason: Dict[str, int] = Field(default_factory=dict)
+    by_camera: Dict[str, int] = Field(default_factory=dict)
+    avg_confidence: float = 0.0

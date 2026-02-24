@@ -58,6 +58,7 @@ from datetime import datetime, timedelta
 from .config import settings
 from .database import db_manager
 from .models import Detection
+from .inference_context import InferenceContext
 
 logger = logging.getLogger(__name__)
 

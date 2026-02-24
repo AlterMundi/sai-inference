@@ -6,7 +6,6 @@ from pydantic import Field, ConfigDict, field_validator
 from pathlib import Path
 from typing import Optional, List, Union, Tuple
 from dotenv import load_dotenv
-import os
 import json
 
 # Force load .env file before settings initialization

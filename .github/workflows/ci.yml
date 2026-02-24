@@ -1,0 +1,16 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  lint:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint with ruff
+        run: ${{ vars.SAI_HOME }}/venv/bin/ruff check src/

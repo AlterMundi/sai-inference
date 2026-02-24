@@ -1,7 +1,6 @@
 """
 Database module for SAI Inference Detection Tracking
 """
-import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any

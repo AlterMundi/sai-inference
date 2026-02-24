@@ -473,7 +473,7 @@ class DailyTestService:
             
             # Update crontab
             new_cron = '\n'.join(lines)
-            process = subprocess.run(['crontab', '-'], input=new_cron, text=True, check=True)
+            subprocess.run(['crontab', '-'], input=new_cron, text=True, check=True)
             
             if removed_count > 0 or self.config.cron_enabled:
                 self.logger.info("✅ Cron schedule updated successfully")
