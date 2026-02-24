@@ -542,6 +542,7 @@ async def infer(
     line_width: Optional[int] = Form(None),
     # Metadata (contains capture_time_utc from camera node)
     metadata_file: Optional[UploadFile] = File(None),
+    metadata_json: Optional[str] = Form(None, description="JSON string with camera metadata (alternative to metadata_file)"),
     # Processing Options
     webhook_url: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = None
@@ -549,7 +550,7 @@ async def infer(
     """Run inference on binary image data (n8n compatible)"""
     request_id = str(uuid.uuid4())
 
-    # Parse metadata file to extract captured_at
+    # Parse metadata from file upload or JSON string form field
     cam_metadata = {}
     if metadata_file:
         raw = await metadata_file.read()
@@ -557,6 +558,11 @@ async def infer(
             cam_metadata = json_module.loads(raw)
         except (json_module.JSONDecodeError, ValueError) as e:
             raise HTTPException(status_code=422, detail=f"Invalid metadata JSON: {e}")
+    elif metadata_json:
+        try:
+            cam_metadata = json_module.loads(metadata_json)
+        except (json_module.JSONDecodeError, ValueError) as e:
+            raise HTTPException(status_code=422, detail=f"Invalid metadata_json: {e}")
     captured_at = parse_captured_at_from_metadata(cam_metadata)
     
     # Check file extension
@@ -780,6 +786,7 @@ async def infer_mosaic(
     iou_threshold: Optional[float] = Form(None),
     camera_id: Optional[str] = Form(None, description="Camera identifier for enhanced temporal alert tracking"),
     metadata_file: Optional[UploadFile] = File(None),
+    metadata_json: Optional[str] = Form(None, description="JSON string with camera metadata (alternative to metadata_file)"),
     return_image: Optional[str] = Form("false"),
     webhook_url: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = None
@@ -787,7 +794,7 @@ async def infer_mosaic(
     """Run mosaic inference on large images using 640x640 overlapping crops"""
     request_id = str(uuid.uuid4())
 
-    # Parse metadata file to extract captured_at
+    # Parse metadata from file upload or JSON string form field
     cam_metadata = {}
     if metadata_file:
         raw = await metadata_file.read()
@@ -795,6 +802,11 @@ async def infer_mosaic(
             cam_metadata = json_module.loads(raw)
         except (json_module.JSONDecodeError, ValueError) as e:
             raise HTTPException(status_code=422, detail=f"Invalid metadata JSON: {e}")
+    elif metadata_json:
+        try:
+            cam_metadata = json_module.loads(metadata_json)
+        except (json_module.JSONDecodeError, ValueError) as e:
+            raise HTTPException(status_code=422, detail=f"Invalid metadata_json: {e}")
     captured_at = parse_captured_at_from_metadata(cam_metadata)
 
     # Check file extension
