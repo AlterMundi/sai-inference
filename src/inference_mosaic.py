@@ -15,7 +15,7 @@ import cv2
 from .config import settings
 from .models import (
     Detection, BoundingBox, DetectionClass,
-    InferenceResponse, ModelInfo
+    InferenceResponse
 )
 from .inference import inference_engine
 

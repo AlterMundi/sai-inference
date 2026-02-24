@@ -5,6 +5,12 @@ import torch
 import numpy as np
 from ultralytics import YOLO
 from pathlib import Path
+
+# Compatibility: SAINet_v11.1 checkpoint references E2ELoss (renamed to E2EDetectLoss
+# in ultralytics 8.3.x). Patch before any model loading via torch.load/pickle.
+import ultralytics.utils.loss as _loss_mod
+if not hasattr(_loss_mod, "E2ELoss") and hasattr(_loss_mod, "E2EDetectLoss"):
+    _loss_mod.E2ELoss = _loss_mod.E2EDetectLoss
 from typing import Optional, List, Dict, Any, Union
 import cv2
 import base64

@@ -6,7 +6,6 @@ from pydantic import Field, ConfigDict, field_validator
 from pathlib import Path
 from typing import Optional, List, Union, Tuple
 from dotenv import load_dotenv
-import os
 import json
 
 # Force load .env file before settings initialization
@@ -39,40 +38,39 @@ class Settings(BaseSettings):
     )
 
     # Performance
-    batch_size: int = Field(default=1, env="SAI_BATCH_SIZE")
-    max_queue_size: int = Field(default=100, env="SAI_MAX_QUEUE")
+    batch_size: int = Field(default=1, alias="SAI_BATCH_SIZE")
+    max_queue_size: int = Field(default=100, alias="SAI_MAX_QUEUE")
 
     # n8n Integration
-    n8n_api_key: Optional[str] = Field(default=None, env="SAI_API_KEY")
+    n8n_api_key: Optional[str] = Field(default=None, alias="SAI_API_KEY")
     allowed_origins: List[str] = Field(
         default=[],
-        env="SAI_ALLOWED_ORIGINS"
+        alias="SAI_ALLOWED_ORIGINS"
     )
 
     # Monitoring
-    enable_metrics: bool = Field(default=True, env="SAI_ENABLE_METRICS")
-    metrics_port: int = Field(default=9090, env="SAI_METRICS_PORT")
-    log_level: str = Field(default="INFO", env="SAI_LOG_LEVEL")
-
+    enable_metrics: bool = Field(default=True, alias="SAI_ENABLE_METRICS")
+    metrics_port: int = Field(default=9090, alias="SAI_METRICS_PORT")
+    log_level: str = Field(default="INFO", alias="SAI_LOG_LEVEL")
 
     # File Upload
-    max_upload_size: int = Field(default=50 * 1024 * 1024, env="SAI_MAX_UPLOAD")  # 50MB
+    max_upload_size: int = Field(default=50 * 1024 * 1024, alias="SAI_MAX_UPLOAD")  # 50MB
     allowed_extensions: List[str] = Field(
         default=[".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"],
-        env="SAI_ALLOWED_EXTENSIONS"
+        alias="SAI_ALLOWED_EXTENSIONS"
     )
 
     # Alert system database
     database_url: str = Field(
         default="postgresql://sai_user:password@localhost/sai_inference",
-        env="SAI_DATABASE_URL"
+        alias="SAI_DATABASE_URL"
     )
     # Alert escalation thresholds
-    wildfire_high_threshold: float = Field(default=0.7, env="SAI_WILDFIRE_HIGH_THRESHOLD")
-    wildfire_low_threshold: float = Field(default=0.3, env="SAI_WILDFIRE_LOW_THRESHOLD")
-    escalation_hours: int = Field(default=3, env="SAI_ESCALATION_HOURS")
-    escalation_minutes: int = Field(default=30, env="SAI_ESCALATION_MINUTES")
-    persistence_count: int = Field(default=3, env="SAI_PERSISTENCE_COUNT")
+    wildfire_high_threshold: float = Field(default=0.7, alias="SAI_WILDFIRE_HIGH_THRESHOLD")
+    wildfire_low_threshold: float = Field(default=0.3, alias="SAI_WILDFIRE_LOW_THRESHOLD")
+    escalation_hours: int = Field(default=3, alias="SAI_ESCALATION_HOURS")
+    escalation_minutes: int = Field(default=30, alias="SAI_ESCALATION_MINUTES")
+    persistence_count: int = Field(default=3, alias="SAI_PERSISTENCE_COUNT")
 
     model_config = ConfigDict(
         env_file=".env",
