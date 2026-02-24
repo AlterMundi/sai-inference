@@ -646,7 +646,7 @@ async def infer(
             detection_count=response.detection_count,
             max_confidence=max(d.confidence for d in response.detections) if response.detections else 0.0,
             processing_time_ms=response.processing_time_ms,
-            model_inference_time_ms=response.model_inference_time_ms,
+
             image_width=response.image_size.get('width') if response.image_size else None,
             image_height=response.image_size.get('height') if response.image_size else None,
             source="n8n",
@@ -740,7 +740,7 @@ async def infer_base64(request: InferenceRequest, background_tasks: BackgroundTa
             detection_count=response.detection_count,
             max_confidence=max(d.confidence for d in response.detections) if response.detections else 0.0,
             processing_time_ms=response.processing_time_ms,
-            model_inference_time_ms=response.model_inference_time_ms,
+
             source="base64_json",
             metadata=req_metadata,
         )
