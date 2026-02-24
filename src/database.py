@@ -99,18 +99,23 @@ class DatabaseManager:
             if not has_captured_at:
                 logger.info("Running captured_at migrations (002-004)...")
 
+                # Helper: extract SQL statements from migration file (skip comments, split on ;)
+                def parse_sql_statements(filepath):
+                    sql = filepath.read_text()
+                    # Remove comment lines
+                    lines = [l for l in sql.splitlines() if not l.strip().startswith('--') and not l.strip().startswith('CONCURRENT_INDEX')]
+                    joined = ' '.join(lines)
+                    return [s.strip() for s in joined.split(';') if s.strip()]
+
                 # 002: Add nullable column
                 migration_002 = migrations_dir / '002_add_captured_at.sql'
                 if migration_002.exists():
-                    sql = migration_002.read_text()
-                    for line in sql.splitlines():
-                        line = line.strip()
-                        if line and not line.startswith('--') and not line.startswith('CONCURRENT_INDEX'):
-                            try:
-                                await conn.execute(line.rstrip(';'))
-                            except Exception as e:
-                                if "already exists" not in str(e):
-                                    raise
+                    for stmt in parse_sql_statements(migration_002):
+                        try:
+                            await conn.execute(stmt)
+                        except Exception as e:
+                            if "already exists" not in str(e):
+                                raise
 
                 # Create concurrent indexes (must be outside transaction)
                 for idx_sql in [
@@ -127,24 +132,18 @@ class DatabaseManager:
                 # 003: Backfill
                 migration_003 = migrations_dir / '003_backfill_captured_at.sql'
                 if migration_003.exists():
-                    sql = migration_003.read_text()
-                    for line in sql.splitlines():
-                        line = line.strip()
-                        if line and not line.startswith('--'):
-                            await conn.execute(line.rstrip(';'))
+                    for stmt in parse_sql_statements(migration_003):
+                        await conn.execute(stmt)
 
                 # 004: Enforce NOT NULL
                 migration_004 = migrations_dir / '004_enforce_captured_at.sql'
                 if migration_004.exists():
-                    sql = migration_004.read_text()
-                    for line in sql.splitlines():
-                        line = line.strip()
-                        if line and not line.startswith('--'):
-                            try:
-                                await conn.execute(line.rstrip(';'))
-                            except Exception as e:
-                                if "already exists" not in str(e):
-                                    raise
+                    for stmt in parse_sql_statements(migration_004):
+                        try:
+                            await conn.execute(stmt)
+                        except Exception as e:
+                            if "already exists" not in str(e):
+                                raise
 
                 logger.info("captured_at migrations completed successfully")
 
