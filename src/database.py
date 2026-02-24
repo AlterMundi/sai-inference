@@ -117,17 +117,10 @@ class DatabaseManager:
                             if "already exists" not in str(e):
                                 raise
 
-                # Create concurrent indexes (must be outside transaction)
-                # Expression index on COALESCE for queries that use fallback ordering
-                for idx_sql in [
-                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_effective_time ON camera_detections (COALESCE(captured_at, created_at))",
-                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_camera_effective_time ON camera_detections (camera_id, COALESCE(captured_at, created_at))",
-                ]:
-                    try:
-                        await self.pool.execute(idx_sql)
-                    except Exception as e:
-                        if "already exists" not in str(e):
-                            logger.warning(f"Concurrent index creation failed (will retry on next startup): {e}")
+                # Note: expression indexes on COALESCE(captured_at, created_at) are not possible
+                # because TIMESTAMPTZ COALESCE is STABLE not IMMUTABLE.
+                # Queries rely on existing idx_camera_time (camera_id, created_at DESC)
+                # and idx_created_at (created_at DESC) indexes for planning hints.
 
                 # 003: Backfill
                 migration_003 = migrations_dir / '003_backfill_captured_at.sql'
@@ -150,28 +143,13 @@ class DatabaseManager:
                     await conn.execute("ALTER TABLE camera_detections ALTER COLUMN captured_at DROP NOT NULL")
                     await conn.execute("UPDATE camera_detections SET captured_at = NULL WHERE captured_at = created_at")
 
-            # Ensure expression indexes exist (replace old bare captured_at indexes)
-            has_effective_time_idx = await conn.fetchval(
-                "SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_detections_effective_time')"
-            )
-            if not has_effective_time_idx:
-                logger.info("Creating COALESCE expression indexes...")
-                # Drop old useless captured_at-only indexes
-                for old_idx in ['idx_detections_captured_at', 'idx_detections_camera_captured']:
-                    try:
-                        await self.pool.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {old_idx}")
-                    except Exception as e:
-                        logger.warning(f"Failed to drop old index {old_idx}: {e}")
-                # Create expression indexes matching COALESCE queries
-                for idx_sql in [
-                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_effective_time ON camera_detections (COALESCE(captured_at, created_at))",
-                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_camera_effective_time ON camera_detections (camera_id, COALESCE(captured_at, created_at))",
-                ]:
-                    try:
-                        await self.pool.execute(idx_sql)
-                    except Exception as e:
-                        if "already exists" not in str(e):
-                            logger.warning(f"Expression index creation failed: {e}")
+            # Clean up old bare captured_at indexes (replaced by COALESCE queries
+            # that rely on existing created_at indexes for planning)
+            for old_idx in ['idx_detections_captured_at', 'idx_detections_camera_captured']:
+                try:
+                    await self.pool.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {old_idx}")
+                except Exception:
+                    pass  # Already dropped or doesn't exist
 
     async def close(self):
         """Close database connection pool"""
