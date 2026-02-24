@@ -1,0 +1,41 @@
+name: Deploy
+
+on:
+  push:
+    branches: [release]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy source and install deps
+        run: |
+          # Copy code into the persistent working directory
+          cp -a src/ requirements.txt run.py /opt/sai-inference/
+          sudo chown -R service:service /opt/sai-inference
+
+          # Install/upgrade dependencies
+          /opt/sai-inference/venv/bin/pip install --quiet -r /opt/sai-inference/requirements.txt
+
+      - name: Restart service
+        run: |
+          sudo systemctl restart sai-inference
+          sleep 5
+          sudo systemctl is-active sai-inference
+
+      - name: Health check
+        run: |
+          for i in 1 2 3 4 5; do
+            if curl -sf http://localhost:8888/api/v1/health \
+              | python3 -c "import sys,json; assert json.load(sys.stdin)['status']=='healthy'"; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Attempt $i/5, retrying in 5s..."
+            sleep 5
+          done
+          echo "Health check failed"
+          sudo journalctl -u sai-inference --no-pager -n 30
+          exit 1
