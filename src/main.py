@@ -150,7 +150,13 @@ if settings.enable_metrics:
     logger.info("Prometheus metrics initialized")
 
 # Track inference metrics function (works with or without metrics enabled)
-def track_inference_metrics(response: InferenceResponse, endpoint: str, status: str = "success"):
+def track_inference_metrics(
+    response: InferenceResponse,
+    endpoint: str,
+    status: str = "success",
+    camera_id: Optional[str] = None,
+    alert_level: Optional[str] = None
+):
     """Track inference metrics for Prometheus"""
     if not settings.enable_metrics or inference_requests_total is None:
         return
@@ -163,16 +169,17 @@ def track_inference_metrics(response: InferenceResponse, endpoint: str, status: 
         for detection in response.detections:
             detections_total.labels(
                 class_name=detection.class_name,
-                camera_id=response.camera_id or "none",
+                camera_id=camera_id or "none",
                 endpoint=endpoint
             ).inc()
 
         # Track alert levels
-        alert_levels_total.labels(
-            alert_level=response.alert_level,
-            camera_id=response.camera_id or "none",
-            endpoint=endpoint
-        ).inc()
+        if alert_level:
+            alert_levels_total.labels(
+                alert_level=alert_level,
+                camera_id=camera_id or "none",
+                endpoint=endpoint
+            ).inc()
 
         # Track inference duration
         inference_duration_seconds.labels(endpoint=endpoint).observe(
@@ -189,8 +196,8 @@ def track_inference_metrics(response: InferenceResponse, endpoint: str, status: 
             )
 
         # Track camera detection rate
-        if response.camera_id:
-            camera_detection_rate.labels(camera_id=response.camera_id).observe(
+        if camera_id:
+            camera_detection_rate.labels(camera_id=camera_id).observe(
                 response.detection_count
             )
 
@@ -573,15 +580,18 @@ async def infer(
             show_labels=parsed_show_labels,
             show_confidence=parsed_show_confidence,
             line_width=line_width,
-            # Enhanced Alert System
-            camera_id=camera_id,
             metadata={
                 "filename": file.filename,
                 "content_type": file.content_type,
                 "source": "binary_upload"
             }
         )
-        
+
+        # Determine alert level via alert_manager (temporal analysis + DB logging)
+        computed_alert_level = await alert_manager.determine_alert_level(
+            response.detections, camera_id
+        )
+
         # Send webhook if requested
         if webhook_url:
             webhook_payload = WebhookPayload(
@@ -590,11 +600,14 @@ async def infer(
                 source="sai-inference",
                 data=response
             )
-            webhook_payload.alert_level = await webhook_payload.determine_alert_level(camera_id)
+            webhook_payload.alert_level = computed_alert_level
             background_tasks.add_task(send_webhook, webhook_url, webhook_payload)
 
         # Track metrics
-        track_inference_metrics(response, endpoint="/api/v1/infer", status="success")
+        track_inference_metrics(
+            response, endpoint="/api/v1/infer", status="success",
+            camera_id=camera_id, alert_level=computed_alert_level
+        )
 
         return response
 
@@ -621,6 +634,7 @@ async def infer_base64(request: InferenceRequest, background_tasks: BackgroundTa
             raise HTTPException(status_code=400, detail="No image provided")
         
         # Run inference with enhanced parameters
+        req_camera_id = request.metadata.get("camera_id") if request.metadata else None
         response = await inference_engine.infer(
             image_data=image_data,
             request_id=request_id,
@@ -637,8 +651,6 @@ async def infer_base64(request: InferenceRequest, background_tasks: BackgroundTa
             show_labels=request.show_labels,
             show_confidence=request.show_confidence,
             line_width=request.line_width,
-            # Enhanced Alert System
-            camera_id=request.camera_id,
             metadata={
                 **request.metadata,
                 "source": "base64_json",
@@ -650,7 +662,12 @@ async def infer_base64(request: InferenceRequest, background_tasks: BackgroundTa
                 }
             }
         )
-        
+
+        # Determine alert level via alert_manager
+        computed_alert_level = await alert_manager.determine_alert_level(
+            response.detections, req_camera_id
+        )
+
         # Send webhook if requested
         if request.webhook_url:
             webhook_payload = WebhookPayload(
@@ -659,11 +676,14 @@ async def infer_base64(request: InferenceRequest, background_tasks: BackgroundTa
                 source="sai-inference",
                 data=response
             )
-            webhook_payload.alert_level = await webhook_payload.determine_alert_level(request.camera_id)
+            webhook_payload.alert_level = computed_alert_level
             background_tasks.add_task(send_webhook, request.webhook_url, webhook_payload)
 
         # Track metrics
-        track_inference_metrics(response, endpoint="/api/v1/infer/base64", status="success")
+        track_inference_metrics(
+            response, endpoint="/api/v1/infer/base64", status="success",
+            camera_id=req_camera_id, alert_level=computed_alert_level
+        )
 
         return response
 
@@ -722,6 +742,11 @@ async def infer_mosaic(
             }
         )
         
+        # Determine alert level via alert_manager
+        computed_alert_level = await alert_manager.determine_alert_level(
+            response.detections, camera_id
+        )
+
         # Send webhook if requested
         if webhook_url:
             webhook_payload = WebhookPayload(
@@ -730,11 +755,14 @@ async def infer_mosaic(
                 source="sai-inference-mosaic",
                 data=response
             )
-            webhook_payload.alert_level = await webhook_payload.determine_alert_level(camera_id)
+            webhook_payload.alert_level = computed_alert_level
             background_tasks.add_task(send_webhook, webhook_url, webhook_payload)
 
         # Track metrics
-        track_inference_metrics(response, endpoint="/api/v1/infer/mosaic", status="success")
+        track_inference_metrics(
+            response, endpoint="/api/v1/infer/mosaic", status="success",
+            camera_id=camera_id, alert_level=computed_alert_level
+        )
 
         return response
 
