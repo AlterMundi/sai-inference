@@ -2,6 +2,7 @@
 Inference Context - Data structure for comprehensive detection logging
 """
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 from .models import Detection
 
@@ -16,6 +17,7 @@ class InferenceContext:
     request_id: str
     camera_id: str
     detections: List[Detection]
+    captured_at: datetime = None  # Actual capture time from camera node (UTC)
 
     # Detection summary
     detection_count: int = 0

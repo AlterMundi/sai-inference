@@ -242,6 +242,7 @@ class AlertManager:
         await db_manager.store_detection(
             camera_id=camera_id,
             request_id=context.request_id if context else "unknown",
+            captured_at=context.captured_at,
             detection_count=len(all_detections),
             smoke_count=smoke_count,
             fire_count=fire_count,
@@ -409,7 +410,7 @@ class AlertManager:
                 "camera_id": camera_id,
                 "current_alert_level": current_level,
                 "recent_detections": len(recent_detections),
-                "last_detection": latest_detection["created_at"].isoformat(),
+                "last_detection": latest_detection["captured_at"].isoformat(),
                 "max_confidence": max_confidence,
                 "confidence_breakdown": {
                     "high": high_confidence_count,
@@ -437,7 +438,7 @@ class AlertManager:
                     result = await conn.execute(
                         """
                         DELETE FROM camera_detections
-                        WHERE camera_id = $1 AND created_at >= $2
+                        WHERE camera_id = $1 AND captured_at >= $2
                         """,
                         camera_id, cutoff_time
                     )
@@ -486,7 +487,7 @@ class AlertManager:
                         COUNT(*) as count,
                         AVG(confidence) as avg_confidence
                     FROM camera_detections
-                    WHERE created_at >= $1
+                    WHERE captured_at >= $1
                     GROUP BY confidence_level
                     ORDER BY avg_confidence DESC
                     """,
@@ -500,9 +501,9 @@ class AlertManager:
                            COUNT(*) as detection_count,
                            MAX(confidence) as max_confidence,
                            AVG(confidence) as avg_confidence,
-                           MAX(created_at) as last_detection
+                           MAX(captured_at) as last_detection
                     FROM camera_detections
-                    WHERE created_at >= $1
+                    WHERE captured_at >= $1
                     GROUP BY camera_id
                     ORDER BY last_detection DESC
                     """,

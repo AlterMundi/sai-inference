@@ -1,14 +1,15 @@
 """
 SAI Inference Service - FastAPI Application
 """
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form, Response
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import uuid
 import logging
 import psutil
 import httpx
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+import json as json_module
 from pathlib import Path
 from typing import Optional, List
 import base64
@@ -27,6 +28,7 @@ from .models import (
 from .inference import inference_engine
 from .inference_mosaic import mosaic_inference_engine
 from .alert_manager import alert_manager
+from .inference_context import InferenceContext
 from .database import db_manager
 
 # Configure logging
@@ -353,6 +355,42 @@ def verify_api_key(api_key: Optional[str] = None) -> bool:
     return secrets.compare_digest(api_key, settings.n8n_api_key)
 
 
+def parse_captured_at_from_metadata(cam_metadata: dict) -> datetime:
+    """
+    Extract and validate captured_at from camera metadata.
+    Raises HTTPException(422) if missing or invalid.
+    """
+    cap_time = cam_metadata.get('environment', {}).get('capture_time_utc')
+    if not cap_time:
+        raise HTTPException(
+            status_code=422,
+            detail="metadata.environment.capture_time_utc is required"
+        )
+
+    try:
+        # Handle Z suffix -> UTC-aware datetime
+        if isinstance(cap_time, str) and cap_time.endswith('Z'):
+            cap_time = cap_time.replace('Z', '+00:00')
+        captured_at = datetime.fromisoformat(cap_time)
+        if captured_at.tzinfo is None:
+            captured_at = captured_at.replace(tzinfo=timezone.utc)
+        captured_at = captured_at.astimezone(timezone.utc)
+    except (ValueError, TypeError) as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid capture_time_utc format: {e}"
+        )
+
+    # Guardrails: reject timestamps too far in future or past
+    now_utc = datetime.now(timezone.utc)
+    if captured_at > now_utc + timedelta(minutes=5):
+        raise HTTPException(status_code=422, detail="captured_at is in the future")
+    if captured_at < now_utc - timedelta(days=730):
+        raise HTTPException(status_code=422, detail="captured_at is too old (>2 years)")
+
+    return captured_at
+
+
 async def download_image(url: str) -> bytes:
     """Download image from URL"""
     async with httpx.AsyncClient() as client:
@@ -505,12 +543,24 @@ async def infer(
     show_labels: Optional[str] = Form("true", description="true/false"),
     show_confidence: Optional[str] = Form("true", description="true/false"),
     line_width: Optional[int] = Form(None),
+    # Metadata (contains capture_time_utc from camera node)
+    metadata_file: Optional[UploadFile] = File(None),
     # Processing Options
     webhook_url: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = None
 ):
     """Run inference on binary image data (n8n compatible)"""
     request_id = str(uuid.uuid4())
+
+    # Parse metadata file to extract captured_at
+    cam_metadata = {}
+    if metadata_file:
+        raw = await metadata_file.read()
+        try:
+            cam_metadata = json_module.loads(raw)
+        except (json_module.JSONDecodeError, ValueError) as e:
+            raise HTTPException(status_code=422, detail=f"Invalid metadata JSON: {e}")
+    captured_at = parse_captured_at_from_metadata(cam_metadata)
     
     # Check file extension
     file_ext = Path(file.filename or "image.jpg").suffix.lower()
@@ -587,9 +637,25 @@ async def infer(
             }
         )
 
+        # Build inference context with captured_at for DB storage
+        context = InferenceContext(
+            request_id=request_id,
+            camera_id=camera_id or "unknown",
+            detections=response.detections,
+            captured_at=captured_at,
+            detection_count=response.detection_count,
+            max_confidence=max(d.confidence for d in response.detections) if response.detections else 0.0,
+            processing_time_ms=response.processing_time_ms,
+            model_inference_time_ms=response.model_inference_time_ms,
+            image_width=response.image_size.get('width') if response.image_size else None,
+            image_height=response.image_size.get('height') if response.image_size else None,
+            source="n8n",
+            metadata=cam_metadata,
+        )
+
         # Determine alert level via alert_manager (temporal analysis + DB logging)
         computed_alert_level = await alert_manager.determine_alert_level(
-            response.detections, camera_id
+            response.detections, camera_id, context=context
         )
 
         # Send webhook if requested
@@ -633,8 +699,10 @@ async def infer_base64(request: InferenceRequest, background_tasks: BackgroundTa
         else:
             raise HTTPException(status_code=400, detail="No image provided")
         
-        # Run inference with enhanced parameters
-        req_camera_id = request.metadata.get("camera_id") if request.metadata else None
+        # Extract captured_at from metadata (mandatory)
+        req_metadata = request.metadata or {}
+        req_camera_id = req_metadata.get("camera_id")
+        captured_at = parse_captured_at_from_metadata(req_metadata)
         response = await inference_engine.infer(
             image_data=image_data,
             request_id=request_id,
@@ -663,9 +731,23 @@ async def infer_base64(request: InferenceRequest, background_tasks: BackgroundTa
             }
         )
 
+        # Build inference context with captured_at
+        context = InferenceContext(
+            request_id=request_id,
+            camera_id=req_camera_id or "unknown",
+            detections=response.detections,
+            captured_at=captured_at,
+            detection_count=response.detection_count,
+            max_confidence=max(d.confidence for d in response.detections) if response.detections else 0.0,
+            processing_time_ms=response.processing_time_ms,
+            model_inference_time_ms=response.model_inference_time_ms,
+            source="base64_json",
+            metadata=req_metadata,
+        )
+
         # Determine alert level via alert_manager
         computed_alert_level = await alert_manager.determine_alert_level(
-            response.detections, req_camera_id
+            response.detections, req_camera_id, context=context
         )
 
         # Send webhook if requested
@@ -700,13 +782,24 @@ async def infer_mosaic(
     confidence_threshold: Optional[float] = Form(None),
     iou_threshold: Optional[float] = Form(None),
     camera_id: Optional[str] = Form(None, description="Camera identifier for enhanced temporal alert tracking"),
+    metadata_file: Optional[UploadFile] = File(None),
     return_image: Optional[str] = Form("false"),
     webhook_url: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = None
 ):
     """Run mosaic inference on large images using 640x640 overlapping crops"""
     request_id = str(uuid.uuid4())
-    
+
+    # Parse metadata file to extract captured_at
+    cam_metadata = {}
+    if metadata_file:
+        raw = await metadata_file.read()
+        try:
+            cam_metadata = json_module.loads(raw)
+        except (json_module.JSONDecodeError, ValueError) as e:
+            raise HTTPException(status_code=422, detail=f"Invalid metadata JSON: {e}")
+    captured_at = parse_captured_at_from_metadata(cam_metadata)
+
     # Check file extension
     file_ext = Path(file.filename or "image.jpg").suffix.lower()
     if file_ext not in settings.allowed_extensions:
@@ -742,9 +835,22 @@ async def infer_mosaic(
             }
         )
         
+        # Build inference context with captured_at
+        context = InferenceContext(
+            request_id=request_id,
+            camera_id=camera_id or "unknown",
+            detections=response.detections,
+            captured_at=captured_at,
+            detection_count=response.detection_count,
+            max_confidence=max(d.confidence for d in response.detections) if response.detections else 0.0,
+            processing_time_ms=response.processing_time_ms,
+            source="mosaic",
+            metadata=cam_metadata,
+        )
+
         # Determine alert level via alert_manager
         computed_alert_level = await alert_manager.determine_alert_level(
-            response.detections, camera_id
+            response.detections, camera_id, context=context
         )
 
         # Send webhook if requested
