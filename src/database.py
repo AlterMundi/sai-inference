@@ -118,12 +118,12 @@ class DatabaseManager:
                                 raise
 
                 # Create concurrent indexes (must be outside transaction)
+                # Expression index on COALESCE for queries that use fallback ordering
                 for idx_sql in [
-                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_captured_at ON camera_detections (captured_at)",
-                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_camera_captured ON camera_detections (camera_id, captured_at)",
+                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_effective_time ON camera_detections (COALESCE(captured_at, created_at))",
+                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_camera_effective_time ON camera_detections (camera_id, COALESCE(captured_at, created_at))",
                 ]:
                     try:
-                        # CONCURRENTLY requires autocommit (no transaction)
                         await self.pool.execute(idx_sql)
                     except Exception as e:
                         if "already exists" not in str(e):
@@ -138,17 +138,40 @@ class DatabaseManager:
                 logger.info("captured_at migrations completed successfully")
 
             # Ensure captured_at is nullable (undo migration 004 if it ran)
-            is_nullable = await conn.fetchval(
-                """
-                SELECT is_nullable FROM information_schema.columns
-                WHERE table_name = 'camera_detections' AND column_name = 'captured_at'
-                """
+            if has_captured_at:
+                is_nullable = await conn.fetchval(
+                    """
+                    SELECT is_nullable FROM information_schema.columns
+                    WHERE table_name = 'camera_detections' AND column_name = 'captured_at'
+                    """
+                )
+                if is_nullable == 'NO':
+                    logger.info("Dropping NOT NULL from captured_at (nullable by design)...")
+                    await conn.execute("ALTER TABLE camera_detections ALTER COLUMN captured_at DROP NOT NULL")
+                    await conn.execute("UPDATE camera_detections SET captured_at = NULL WHERE captured_at = created_at")
+
+            # Ensure expression indexes exist (replace old bare captured_at indexes)
+            has_effective_time_idx = await conn.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_detections_effective_time')"
             )
-            if is_nullable == 'NO':
-                logger.info("Dropping NOT NULL from captured_at (nullable by design)...")
-                await conn.execute("ALTER TABLE camera_detections ALTER COLUMN captured_at DROP NOT NULL")
-                # Clear backfilled rows where captured_at was just a copy of created_at
-                await conn.execute("UPDATE camera_detections SET captured_at = NULL WHERE captured_at = created_at")
+            if not has_effective_time_idx:
+                logger.info("Creating COALESCE expression indexes...")
+                # Drop old useless captured_at-only indexes
+                for old_idx in ['idx_detections_captured_at', 'idx_detections_camera_captured']:
+                    try:
+                        await self.pool.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {old_idx}")
+                    except Exception as e:
+                        logger.warning(f"Failed to drop old index {old_idx}: {e}")
+                # Create expression indexes matching COALESCE queries
+                for idx_sql in [
+                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_effective_time ON camera_detections (COALESCE(captured_at, created_at))",
+                    "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_detections_camera_effective_time ON camera_detections (camera_id, COALESCE(captured_at, created_at))",
+                ]:
+                    try:
+                        await self.pool.execute(idx_sql)
+                    except Exception as e:
+                        if "already exists" not in str(e):
+                            logger.warning(f"Expression index creation failed: {e}")
 
     async def close(self):
         """Close database connection pool"""
