@@ -672,6 +672,10 @@ async def infer(
             webhook_payload.alert_level = computed_alert_level
             background_tasks.add_task(send_webhook, webhook_url, webhook_payload)
 
+        # Restore alert_level and active_classes in response
+        response.alert_level = computed_alert_level
+        response.active_classes = list(set(d.class_name for d in response.detections)) if response.detections else []
+
         # Track metrics
         track_inference_metrics(
             response, endpoint="/api/v1/infer", status="success",

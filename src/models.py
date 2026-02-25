@@ -120,6 +120,8 @@ class InferenceResponse(BaseModel):
     image_path: Optional[str] = Field(None, description="Storage path (filesystem or IPFS)")
     
     annotated_image: Optional[str] = Field(None, description="Base64 encoded annotated image")
+    alert_level: Optional[str] = Field(None, description="Alert level: none/low/medium/high/critical")
+    active_classes: List[str] = Field(default_factory=list, description="Detected class names")
     version: str
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
     
